@@ -1,0 +1,116 @@
+{
+  "projectStandards": {
+    "architecture": {
+      "mvcModel": "Tuân thủ mô hình MVC: Phân tách Model (models), View (frontend), Controller (controllers) và Service (services)",
+      "modularStructure": "Mỗi module phải có nhiệm vụ riêng biệt, không chồng chéo chức năng",
+      "namingConvention": "Đặt tên file theo camelCase, class theo PascalCase",
+      "middlewareSeparation": "Phân chia middleware theo chức năng cụ thể (auth, roleAuth, adminAuth)"
+    },
+    "security": {
+      "telegramAuth": "Luôn xác thực người dùng Telegram trước khi cho phép bất kỳ thao tác nào",
+      "roleBasedAccess": "Kiểm tra quyền truy cập dựa trên vai trò (user, affiliate, admin) cho mọi endpoint",
+      "dataValidation": "Kiểm tra và làm sạch tất cả dữ liệu đầu vào từ người dùng",
+      "errorHandling": "Sử dụng ApiError để xử lý lỗi một cách nhất quán, không để lộ thông tin nhạy cảm",
+      "envVariables": "Lưu trữ thông tin nhạy cảm trong biến môi trường (.env), không hard-code"
+    },
+    "database": {
+      "indexing": "Tạo index cho các trường thường xuyên được truy vấn",
+      "schema": "Định nghĩa đầy đủ các trường, kiểu dữ liệu và ràng buộc trong schema",
+      "validation": "Kiểm tra dữ liệu trước khi lưu vào database (regex, enum, required)",
+      "references": "Sử dụng reference (ObjectId) để liên kết giữa các collections",
+      "pagination": "Sử dụng phân trang cho các API trả về nhiều dữ liệu"
+    },
+    "caching": {
+      "redisUsage": "Cache dữ liệu người dùng và cấu hình hệ thống để giảm tải database",
+      "errorHandling": "Luôn xử lý lỗi khi Redis không khả dụng, fallback về database",
+      "connectionPooling": "Sử dụng connection pooling cho MongoDB để tối ưu hiệu suất",
+      "redisPipeline": "Sử dụng Redis pipeline cho các thao tác batch để tăng hiệu suất",
+      "ttlCache": "Đặt thời gian sống phù hợp cho cache (hiện tại là 3600s)"
+    },
+    "businessLogic": {
+      "separation": "Đưa logic nghiệp vụ phức tạp vào services, giữ controllers gọn nhẹ",
+      "timeConstraints": "Đặt giới hạn thời gian cụ thể cho các hoạt động (cược chỉ từ 00:00 đến 08:00 UTC)",
+      "balanceValidation": "Kiểm tra số dư người dùng trước khi cho phép đặt cược",
+      "payoutRatio": "Mọi thay đổi về tỉ lệ thưởng (hiện tại là 1:70) phải được quản lý qua cấu hình, không hard-code",
+      "resultVerification": "Đảm bảo logic kiểm tra kết quả chính xác và nhất quán"
+    },
+    "errorManagement": {
+      "globalHandler": "Sử dụng global error handler trong routes để xử lý tất cả các lỗi",
+      "errorClassification": "Phân biệt rõ lỗi nghiệp vụ (isOperational) và lỗi hệ thống",
+      "errorLogging": "Ghi lại đầy đủ thông tin lỗi cho mục đích debug",
+      "errorMessages": "Trả về thông báo lỗi rõ ràng cho người dùng nhưng không để lộ chi tiết kỹ thuật",
+      "statusCodes": "Sử dụng đúng HTTP status code cho từng loại lỗi"
+    },
+    "notifications": {
+      "telegramApi": "Sử dụng telegramService cho tất cả các tương tác với Telegram API",
+      "resultNotifications": "Thông báo kết quả cho người chơi và trên kênh chung",
+      "errorHandling": "Xử lý lỗi khi không thể gửi thông báo",
+      "messageTemplates": "Sử dụng template cho các loại thông báo để đảm bảo tính nhất quán"
+    },
+    "testing": {
+      "unitTests": "Viết unit tests cho mọi logic nghiệp vụ quan trọng",
+      "integrationTests": "Kiểm tra tích hợp giữa các modules",
+      "apiDocumentation": "Sử dụng Swagger hoặc công cụ tương tự để tài liệu hóa API",
+      "codeComments": "Thêm comments cho các đoạn code phức tạp"
+    },
+    "gameSpecific": {
+      "betValidation": "Kiểm tra định dạng số cược (2 chữ số hoặc 3 chữ số)",
+      "resultVerification": "Đảm bảo tính minh bạch trong việc công bố kết quả xổ số",
+      "transactionManagement": "Theo dõi tất cả các giao dịch tiền tệ (deposit, withdraw)",
+      "affiliateSystem": "Quản lý hệ thống affiliate một cách nhất quán",
+      "statistics": "Cập nhật thống kê người chơi và hệ thống sau mỗi kỳ xổ số"
+    },
+    "configuration": {
+      "envVariables": "Sử dụng dotenv cho quản lý biến môi trường",
+      "configFiles": "Tập trung cấu hình trong thư mục config",
+      "environments": "Chuẩn bị cấu hình cho các môi trường khác nhau (dev, staging, production)",
+      "logging": "Cấu hình logging phù hợp với từng môi trường"
+    },
+    "versionControl": {
+      "semanticVersioning": "Sử dụng semantic versioning cho API",
+      "gitFlow": "Tuân thủ quy trình git flow cho việc phát triển",
+      "codeReview": "Yêu cầu code review trước khi merge vào nhánh chính",
+      "changelog": "Duy trì changelog cho mọi thay đổi lớn"
+    }
+  },
+  "eslintRules": {
+    "indent": ["error", 2],
+    "linebreak-style": ["error", "unix"],
+    "quotes": ["error", "single"],
+    "semi": ["error", "always"],
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "no-unused-vars": ["error", { "argsIgnorePattern": "next|req|res" }],
+    "prefer-const": "error",
+    "arrow-body-style": ["error", "as-needed"],
+    "no-var": "error",
+    "camelcase": ["error", { "properties": "always" }]
+  },
+  "lintIgnore": [
+    "node_modules",
+    "package-lock.json",
+    "dist",
+    ".env"
+  ],
+  "requiredPackages": {
+    "production": {
+      "express": "^4.17.1",
+      "mongoose": "^6.0.0",
+      "redis": "^5.5.6",
+      "dotenv": "^10.0.0",
+      "node-telegram-bot-api": "^0.58.0",
+      "express-validator": "^6.14.0",
+      "helmet": "^5.0.0",
+      "cors": "^2.8.5",
+      "jsonwebtoken": "^8.5.1",
+      "winston": "^3.7.2"
+    },
+    "development": {
+      "nodemon": "^2.0.15",
+      "jest": "^28.0.0",
+      "supertest": "^6.2.3",
+      "eslint": "^8.14.0",
+      "prettier": "^2.6.2",
+      "husky": "^8.0.1"
+    }
+  }
+}

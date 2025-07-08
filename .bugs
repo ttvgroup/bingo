@@ -1,0 +1,61 @@
+# DANH SÁCH LỖI TRONG BACKEND
+
+## 1. Lỗi xác thực và phân quyền
+[x]- Trùng lặp giữa `middleware/auth.js` và `middleware/roleAuth.js`, cần hợp nhất
+[x]- Thiếu triển khai đầy đủ của hàm `verifyTelegramAuth` trong `middleware/auth.js`
+[x]- Không thấy cơ chế xác thực token Telegram được triển khai đầy đủ
+[]- Thiếu xử lý refresh token và quản lý phiên
+
+## 2. Xử lý lỗi
+[x]- `middleware/roleAuth.js` không sử dụng ApiError mà dùng res.status trực tiếp, không nhất quán
+[x]- Thiếu xử lý lỗi đồng bộ trong controllers
+[x]- Nhiều hàm catch không truyền error vào next(error)
+[x]- Global error handler không ghi log đầy đủ thông tin lỗi
+
+## 3. Cấu hình và giá trị cứng
+[x]- Tỉ lệ thưởng 70 được hard-code trong `lotteryService.js` thay vì đặt trong file cấu hình
+[x]- Giới hạn thời gian đặt cược (00:00-08:00 UTC) cũng bị hard-code trong controller
+[x]- Thời gian cache (3600s) bị hard-code, nên đưa vào cấu hình
+
+## 4. Redis và caching
+[x]- Thiếu chiến lược kết nối lại Redis khi mất kết nối
+[x]- Không có xử lý lỗi Redis nhất quán trong toàn bộ codebase
+[x]- Thiếu cơ chế invalidate cache khi dữ liệu thay đổi
+[]- Không có cơ chế clear cache định kỳ hoặc khi cache quá lớn
+
+## 5. Vấn đề bảo mật
+[x]- Thiếu middleware helmet để thêm các header bảo mật
+[x]- Không thấy cấu hình CORS
+[]- Một số endpoint thiếu validation đầu vào
+[]- Không thấy xử lý rate limiting để chống tấn công DDoS
+[]- Thiếu xử lý sanitize dữ liệu đầu vào
+
+## 6. Tổ chức logic nghiệp vụ
+[x]- Logic kiểm tra thời gian đặt cược nên đưa vào service thay vì controller
+[x]- Controller `betController.js` chứa quá nhiều business logic, cần tách vào service
+[]- Một số controllers xử lý nhiều chức năng, vi phạm nguyên tắc single responsibility
+
+## 7. Database
+[x]- `Transaction.js` thiếu index cho userId và status
+[]- Không có chiến lược xử lý lỗi kết nối database rõ ràng
+[]- Thiếu validation data trước khi lưu trong một số model
+[x]- Không thấy sử dụng transaction MongoDB cho các hoạt động liên quan đến tiền
+[x]- Thiếu xử lý cho vấn đề race condition khi nhiều người cùng đặt cược
+
+## 8. Thiếu tests
+[]- Không có unit tests cho các business logic
+[]- Không có integration tests
+[]- Không có API tests
+[]- Thiếu cơ chế mockup cho các service bên ngoài (Telegram API)
+
+## 9. Documentation
+[x]- Thiếu comments cho các đoạn code phức tạp
+[]- Không có API documentation (Swagger)
+[x]- Thiếu JSDoc cho các functions
+[]- Thiếu README chi tiết cho việc setup và chạy project
+
+## 10. Vấn đề hiệu suất
+[]- Nhiều truy vấn database không sử dụng projection để giới hạn fields
+[x]- Chưa thấy sử dụng transaction MongoDB cho các hoạt động liên quan đến tiền
+[x]- Không có chiến lược phân trang cho API trả về nhiều dữ liệu
+[]- Thiếu cơ chế gom nhóm thông báo (batch notification) cho Telegram

@@ -1,0 +1,222 @@
+{
+  "betTypes": [
+    {
+      "id": "2D",
+      "name": "2D",
+      "description": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+      "digits": 2,
+      "ratio": 70,
+      "minAmount": 1000,
+      "example": "Đặt cược số 23 với 10.000đ, nếu giải đặc biệt có 2 số cuối là 23 hoặc giải 8 là 23, bạn sẽ thắng 700.000đ",
+      "rules": [
+        "Cược thắng khi 2 số cuối của giải đặc biệt hoặc giải 8 trùng với số đã đặt",
+        "Tỷ lệ trả thưởng 1:70"
+      ],
+      "prizes": ["special", "eighth"],
+      "digitPosition": "last"
+    },
+    {
+      "id": "3D",
+      "name": "3D",
+      "description": "Đánh vào 3 số của giải 7 và 3 số cuối của giải đặc biệt",
+      "digits": 3,
+      "ratio": 600,
+      "minAmount": 1000,
+      "example": "Đặt cược số 234 với 10.000đ, nếu giải 7 là 234 hoặc 3 số cuối của giải đặc biệt là 234, bạn sẽ thắng 6.000.000đ",
+      "rules": [
+        "Cược thắng khi giải 7 hoặc 3 số cuối của giải đặc biệt trùng với số đã đặt",
+        "Tỷ lệ trả thưởng 1:600"
+      ],
+      "prizes": ["special", "seventh"],
+      "digitPosition": "last"
+    },
+    {
+      "id": "4D",
+      "name": "4D",
+      "description": "Đánh vào 4 số cuối của 16 lô",
+      "digits": 4,
+      "ratio": 5000,
+      "minAmount": 1000,
+      "example": "Đặt cược số 2345 với 10.000đ, nếu một trong các giải 5 hoặc giải 6 có số 2345, bạn sẽ thắng 50.000.000đ",
+      "rules": [
+        "Cược thắng khi một trong các giải 5 hoặc giải 6 trùng với số đã đặt",
+        "Tỷ lệ trả thưởng 1:5000"
+      ],
+      "prizes": ["fifth", "sixth"],
+      "digitPosition": "full"
+    },
+    {
+      "id": "Bao lô 2D",
+      "name": "Bao lô 2D",
+      "description": "Đánh vào 2 số cuối của tất cả các giải (18 lô cho 1 đài)",
+      "digits": 2,
+      "ratio": 70,
+      "minAmount": 18000,
+      "example": "Đặt cược bao lô 2D số 23 với 18.000đ cho đài TP.HCM, nếu có bất kỳ giải nào của đài TP.HCM có 2 số cuối là 23, bạn sẽ thắng 70.000đ",
+      "rules": [
+        "Cược thắng khi 2 số cuối của bất kỳ giải nào trong đài đã chọn trùng với số đã đặt",
+        "Tỷ lệ trả thưởng 1:70",
+        "Cần đặt cược cho tất cả 18 lô trong 1 đài, nên số tiền tối thiểu là 18.000đ"
+      ],
+      "prizes": ["all"],
+      "digitPosition": "last",
+      "requireProvince": true
+    },
+    {
+      "id": "Bao lô 3D",
+      "name": "Bao lô 3D",
+      "description": "Đánh vào 3 số cuối của tất cả các giải (17 lô cho 1 đài)",
+      "digits": 3,
+      "ratio": 600,
+      "minAmount": 17000,
+      "example": "Đặt cược bao lô 3D số 234 với 17.000đ cho đài TP.HCM, nếu có bất kỳ giải nào của đài TP.HCM có 3 số cuối là 234, bạn sẽ thắng 600.000đ",
+      "rules": [
+        "Cược thắng khi 3 số cuối của bất kỳ giải nào trong đài đã chọn trùng với số đã đặt",
+        "Tỷ lệ trả thưởng 1:600",
+        "Cần đặt cược cho tất cả 17 lô trong 1 đài, nên số tiền tối thiểu là 17.000đ"
+      ],
+      "prizes": ["all"],
+      "digitPosition": "last",
+      "requireProvince": true
+    },
+    {
+      "id": "Bao lô 4D",
+      "name": "Bao lô 4D",
+      "description": "Đánh vào 4 số cuối của 16 lô",
+      "digits": 4,
+      "ratio": 5000,
+      "minAmount": 16000,
+      "example": "Đặt cược bao lô 4D số 2345 với 16.000đ cho đài TP.HCM, nếu có bất kỳ giải 5 hoặc giải 6 nào của đài TP.HCM có số 2345, bạn sẽ thắng 5.000.000đ",
+      "rules": [
+        "Cược thắng khi một trong các giải 5 hoặc giải 6 trong đài đã chọn trùng với số đã đặt",
+        "Tỷ lệ trả thưởng 1:5000",
+        "Cần đặt cược cho tất cả 16 lô trong 1 đài, nên số tiền tối thiểu là 16.000đ"
+      ],
+      "prizes": ["fifth", "sixth"],
+      "digitPosition": "full",
+      "requireProvince": true
+    }
+  ],
+  "provinces": [
+    {
+      "id": "XSHCM",
+      "name": "TP.HCM",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ hai", "Thứ bảy"]
+    },
+    {
+      "id": "XSDT",
+      "name": "Đồng Tháp",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ hai"]
+    },
+    {
+      "id": "XSCM",
+      "name": "Cà Mau",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ hai"]
+    },
+    {
+      "id": "XSBT",
+      "name": "Bến Tre",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ ba"]
+    },
+    {
+      "id": "XSVT",
+      "name": "Vũng Tàu",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ ba"]
+    },
+    {
+      "id": "XSBL",
+      "name": "Bạc Liêu",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ ba"]
+    },
+    {
+      "id": "XSDN",
+      "name": "Đồng Nai",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ tư"]
+    },
+    {
+      "id": "XSCT",
+      "name": "Cần Thơ",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ tư"]
+    },
+    {
+      "id": "XSST",
+      "name": "Sóc Trăng",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ tư"]
+    },
+    {
+      "id": "XSTN",
+      "name": "Tây Ninh",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ năm"]
+    },
+    {
+      "id": "XSAG",
+      "name": "An Giang",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ năm"]
+    },
+    {
+      "id": "XSBTH",
+      "name": "Bình Thuận",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ năm"]
+    },
+    {
+      "id": "XSVL",
+      "name": "Vĩnh Long",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ sáu"]
+    },
+    {
+      "id": "XSBD",
+      "name": "Bình Dương",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ sáu"]
+    },
+    {
+      "id": "XSTV",
+      "name": "Trà Vinh",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ sáu"]
+    },
+    {
+      "id": "XSLA",
+      "name": "Long An",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ bảy"]
+    },
+    {
+      "id": "XSBP",
+      "name": "Bình Phước",
+      "region": "Miền Nam",
+      "drawDays": ["Thứ bảy"]
+    },
+    {
+      "id": "XSTG",
+      "name": "Tiền Giang",
+      "region": "Miền Nam",
+      "drawDays": ["Chủ nhật"]
+    },
+    {
+      "id": "XSKG",
+      "name": "Kiên Giang",
+      "region": "Miền Nam",
+      "drawDays": ["Chủ nhật"]
+    },
+    {
+      "id": "XSDL",
+      "name": "Đà Lạt",
+      "region": "Miền Nam",
+      "drawDays": ["Chủ nhật"]
+    }
+  ]
+} 

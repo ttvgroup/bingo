@@ -1,0 +1,91 @@
+{
+  "tieu_de": "Tỷ lệ giải thưởng và các loại cược phổ biến trong lô đề miền Nam",
+  "mo_ta": "Tóm tắt các loại hình đánh lô đề và tỷ lệ trả thưởng phổ biến trong văn hóa xổ số dân gian tại Việt Nam",
+  
+  "loai_cuoc": {
+    "lô": {
+      "mo_ta": "Đánh vào 2 số cuối của các giải (18 lô cho 1 đài, tương đương 1*18 khi đặt cược bao lô 1 đài . Nếu đặt cược 2 đài là 1*36, 3 đài 1*54)",
+      "ty_le": "1 ăn 70 (cược 1000 thắng 70000 ,Bao lô 1 đài cược 18000 thắng 70000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 00-99"
+    },
+    "đề": {
+      "mo_ta": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+      "ty_le": "1 ăn 70 (cược 1000 thắng 70000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 00-99"
+    },
+    "2D": {
+      "mo_ta": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+      "ty_le": "1 ăn 70 (cược 1000 thắng 70000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 00-99"
+    },
+    "Bao lô 2D": {
+      "mo_ta": " đánh vào 2 chữ số *18 lô",
+      "ty_le": "1 ăn 70 (cược 18000 thắng 70000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 00-99"
+    },
+    "3D": {
+      "mo_ta": "Đánh vào 3 số  của giải 7 và 3 số cuối của giải đặc biệt",
+      "ty_le": "1 ăn 600 (cược 1000 thắng 600000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 000-999"
+    },
+    "Bao lô 3D": {
+      "mo_ta": "Đánh vào 3 số cuối của 17 lô",
+      "ty_le": "1 ăn 600 (cược 17000 thắng 600000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 000-999"
+    },
+    "Bao lô 4D": {
+      "mo_ta": "Đánh vào 4 số cuối của 16 lô",
+      "ty_le": "1 ăn 5000 (cược 1000 thắng 5000000)",
+      "cach_danh": "Chọn bất kỳ số nào từ 0000-9999"
+    },
+    "lô_xiên": {
+      "mo_ta": "Đánh cược nhiều số lô cùng một lúc, tất cả các số phải về mới thắng",
+      "loai": {
+        "xiên_2": {
+          "mo_ta": "Đánh cược 2 cặp số trong 18 lô(1 đài)",
+          "ty_le": "1 ăn 700 (Bao lô 1 đài cược 30000 thắng 700000 ,Bao lô 2 đài cược 60000 thắng 1400000,bao lô 3 đài cược 90000 thắng 2100000)"
+          
+        },
+        "xiên_3": {
+          "mo_ta": "Đánh cược 3 cặp số trong 18 lô(1 đài)",
+          "ty_le": "1 ăn 40 (cược 1 000 thắng 40 000)"
+        },
+        "xiên_4": {
+          "mo_ta": "Đánh cược 4 số lô",
+          "ty_le": "1 ăn 100 (cược 1000 thắng 100000)"
+        }
+      }
+    },
+    "đá_thẳng": {
+      "mo_ta": "Đánh 2 cặp số ghép với nhau theo thứ tự",
+      "ty_le": "1 ăn 70 (cược 1 000 thắng 70 000)",
+      "cach_danh": "Chọn 2 số từ 00-99, ví dụ: 23-45"
+    },
+    "đá_vòng": {
+      "mo_ta": "Đánh 2 cặp số ghép với nhau không theo thứ tự",
+      "ty_le": "1 ăn 35 (cược 1 000 thắng 35 000)",
+      "cach_danh": "Chọn 2 số từ 00-99, ví dụ: 23-45 hoặc 45-23"
+    },   
+    "lô_kép": {
+      "mo_ta": "Đánh vào 2 số giống nhau",
+      "ty_le": "1 ăn 99",
+      "cach_danh": "Các số: 00, 11, 22, 33, 44, 55, 66, 77, 88, 99"
+    }
+  },
+  "nguon_ket_qua": {
+    "mien_bac": "Kết quả xổ số kiến thiết miền Bắc",
+    "mien_trung": "Kết quả xổ số kiến thiết các tỉnh miền Trung",
+    "mien_nam": "Kết quả xổ số kiến thiết các tỉnh miền Nam"
+  },
+  "lich_quay_thuong": {
+    "mien_bac": "Quay số lúc 18h15 hàng ngày",
+    "mien_trung": "Quay số lúc 17h15 hàng ngày",
+    "mien_nam": "Quay số lúc 16h15 hàng ngày"
+  },
+  
+  "thoi_gian_danh": {
+    "mo_ta": "Thời gian đặt cược và thời gian công bố kết quả",
+    "han_chot": "Trước giờ quay thưởng 60 phút",
+    "cong_bo": "Sau khi có kết quả xổ số chính thức"
+  }
+}
