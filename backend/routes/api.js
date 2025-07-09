@@ -1,135 +1,79 @@
 const express = require('express');
 const router = express.Router();
-
-// Controllers
 const userController = require('../controllers/userController');
 const betController = require('../controllers/betController');
 const resultController = require('../controllers/resultController');
 const statsController = require('../controllers/statsController');
 const transactionController = require('../controllers/transactionController');
 const adminController = require('../controllers/adminController');
-
-// Middleware
 const auth = require('../middleware/auth');
 const adminAuth = require('../middleware/adminAuth');
 const roleAuth = require('../middleware/roleAuth');
-const twoFactorAuth = require('../middleware/twoFactorAuth');
 const rateLimit = require('../middleware/rateLimit');
+const asyncHandler = require('../utils/asyncHandler');
 
-// Admin authentication routes
-router.post('/admin/login/telegram/send-code', adminController.sendTelegramCode);
-router.post('/admin/login/telegram', adminAuth.verifyTelegramCode, adminController.loginWithTelegram);
-router.get('/admin/login/qr', adminAuth.isAdmin, adminAuth.generateLoginQR, adminController.getLoginQR);
-router.post('/admin/device/register', adminAuth.registerNewDevice, adminController.registerDevice);
+// Định nghĩa các middleware bảo vệ đường dẫn admin
+const secureAdminRoutes = [adminAuth.verifyAdmin, roleAuth('admin')];
+const strictSecureAdminRoutes = [adminAuth.verifyAdminDevice, roleAuth('admin')];
 
-// Admin device management routes - Protected
-router.get('/admin/devices', auth.verifyTelegramAuth, adminAuth.isAdmin, adminController.getRegisteredDevices);
-router.delete('/admin/devices/:deviceId', auth.verifyTelegramAuth, adminAuth.isAdmin, adminController.removeDevice);
+// === ADMIN ROUTES ===
+// Admin Authentication Routes
+router.post('/admin/login/telegram/send-code', asyncHandler(adminController.sendTelegramCode));
+router.post('/admin/login/telegram', adminAuth.verifyTelegramCode, asyncHandler(adminController.loginWithTelegram));
+router.get('/admin/login/qr', asyncHandler(adminController.generateLoginQR));
+router.post('/admin/device/register', adminAuth.registerNewDevice, asyncHandler(adminController.registerDevice));
+router.get('/admin/devices', adminAuth.verifyAdmin, asyncHandler(adminController.getRegisteredDevices));
+router.delete('/admin/devices/:deviceId', adminAuth.verifyAdmin, asyncHandler(adminController.removeDevice));
 
-// Admin routes - All protected with both auth and device verification
-router.use('/admin', auth.verifyTelegramAuth, adminAuth.isAdmin, adminAuth.verifyAdminDevice);
+// Admin Management Routes
+router.get('/admin/users', secureAdminRoutes, asyncHandler(userController.getAllUsers));
+router.get('/admin/users/:id', secureAdminRoutes, asyncHandler(userController.getUserById));
+router.put('/admin/users/:id', strictSecureAdminRoutes, asyncHandler(userController.updateUser));
 
-// Admin result management
-router.post('/admin/results', adminController.createResult);
-router.put('/admin/results/:id', adminController.updateResult);
-router.delete('/admin/results/:id', adminController.deleteResult);
-
-// Admin user management
-router.get('/admin/users', adminController.getUsers);
-router.put('/admin/users/:id', adminController.updateUser);
-
-// Admin bet management
-router.get('/admin/bets', adminController.getBets);
-
-// Admin transaction management
-router.get('/admin/transactions', adminController.getTransactions);
-router.put('/admin/transactions/:id/approve', adminController.approveTransaction);
-router.put('/admin/transactions/:id/reject', adminController.rejectTransaction);
-
-// User routes
-router.post('/users/register', userController.register);
-router.post('/users/login', userController.login);
-router.get('/users/me', auth.verifyTelegramAuth, userController.getProfile);
-router.put('/users/me', auth.verifyTelegramAuth, userController.updateProfile);
-router.get('/users/:id', auth.verifyTelegramAuth, userController.getUser);
-router.post('/users', auth.verifyTelegramAuth, userController.createUser);
-
-// Bet routes
-router.post('/bets', auth.verifyTelegramAuth, betController.placeBet);
-router.get('/bets', auth.verifyTelegramAuth, betController.getUserBets);
-router.get('/bets/:id', auth.verifyTelegramAuth, betController.getBet);
-router.get('/bet-types', betController.getBetTypes);
-
-// Result routes
-router.get('/results/latest', resultController.getLatestResults);
-router.get('/results/:id', resultController.getResult);
-router.get('/results/date/:date', resultController.getResultByDate);
-router.get('/results/:resultId/filter', resultController.filterResultsByLastDigit);
-router.get('/results/:resultId/filter-multi', resultController.filterResultsByMultipleDigits);
-router.get('/results/statistics/frequency', resultController.getFrequencyStatistics);
+// Admin Bet Management Routes
+router.get('/admin/bets', secureAdminRoutes, asyncHandler(betController.getAdminBets));
+router.get('/admin/bets/:id', secureAdminRoutes, asyncHandler(betController.getAdminBetById));
 
 // Transaction routes
-router.get('/transactions', auth.verifyTelegramAuth, transactionController.getUserTransactions);
-router.post('/transactions/deposit', auth.verifyTelegramAuth, transactionController.createDepositRequest);
-router.post('/transactions/withdraw', auth.verifyTelegramAuth, transactionController.createWithdrawRequest);
+router.get('/admin/transactions', secureAdminRoutes, asyncHandler(transactionController.getAdminTransactions));
+router.get('/admin/transactions/:id', secureAdminRoutes, asyncHandler(transactionController.getAdminTransactionById));
+router.put('/admin/transactions/:id', strictSecureAdminRoutes, asyncHandler(transactionController.updateTransaction));
+router.put('/admin/transactions/:id/status', strictSecureAdminRoutes, asyncHandler(transactionController.updateTransactionStatus));
+
+// Result routes
+router.get('/admin/results', secureAdminRoutes, asyncHandler(resultController.getAdminResults));
+router.get('/admin/results/:id', secureAdminRoutes, asyncHandler(resultController.getAdminResultById));
+router.put('/admin/results/:id', strictSecureAdminRoutes, asyncHandler(resultController.updateResult));
+
+// User bet routes - cần auth middleware
+router.get('/bets', auth.verifyUser, asyncHandler(betController.getUserBets));
+router.get('/bets/:id', auth.verifyUser, asyncHandler(betController.getUserBetById));
+router.get('/bets/history', auth.verifyUser, asyncHandler(betController.getUserBetHistory));
+router.get('/bets/active', auth.verifyUser, asyncHandler(betController.getUserActiveBets));
+router.get('/bets/winners', auth.verifyUser, asyncHandler(betController.getWinningBets));
+
+// Result public routes
+router.get('/results/:id', asyncHandler(resultController.getResultById));
+router.get('/results/date/:date', asyncHandler(resultController.getResultsByDate));
+router.get('/results/province/:province', asyncHandler(resultController.getResultsByProvince));
+
+// Transaction user routes
+router.get('/transactions', auth.verifyUser, asyncHandler(transactionController.getUserTransactions));
+router.get('/transactions/:id', auth.verifyUser, asyncHandler(transactionController.getUserTransactionById));
 
 // Stats routes
-router.get('/stats/user', auth.verifyTelegramAuth, statsController.getUserStats);
-router.get('/stats/public', statsController.getPublicStats);
+router.get('/stats/user', auth.verifyUser, asyncHandler(statsController.getUserStats));
+router.get('/stats/hot-numbers', asyncHandler(statsController.getHotNumbers));
+router.get('/stats/system', secureAdminRoutes, asyncHandler(statsController.getSystemStats));
 
-// Admin routes - Áp dụng middleware IP restriction và 2FA
-const secureAdminRoutes = [adminAuth, twoFactorAuth.ipRestriction];
-const strictSecureAdminRoutes = [adminAuth, twoFactorAuth.ipRestriction, twoFactorAuth.require2FA];
+// === ADMIN PAYOUT ROUTES ===
+router.get('/admin/payouts/pending', strictSecureAdminRoutes, asyncHandler(adminController.getPendingPayouts));
+router.post('/admin/payouts/confirm', strictSecureAdminRoutes, asyncHandler(adminController.confirmPayouts));
 
-// Kết quả xổ số
-router.post('/admin/results', strictSecureAdminRoutes, rateLimit.strictLimiter, resultController.createResult);
-router.put('/admin/results/:id', strictSecureAdminRoutes, rateLimit.strictLimiter, resultController.updateResult);
-router.delete('/admin/results/:id', strictSecureAdminRoutes, rateLimit.strictLimiter, resultController.deleteResult);
-
-// Xác minh kết quả từ nguồn bên ngoài
-router.post('/admin/results/:id/verify-external', secureAdminRoutes, adminController.verifyResultWithExternalSources);
-router.put('/admin/results/:id/approve', strictSecureAdminRoutes, adminController.approveResult);
-
-// Quản lý người dùng và giao dịch
-router.get('/admin/users', secureAdminRoutes, adminController.getAllUsers);
-router.get('/admin/bets', secureAdminRoutes, adminController.getAllBets);
-router.get('/admin/transactions', secureAdminRoutes, adminController.getAllTransactions);
-router.put('/admin/users/:id', strictSecureAdminRoutes, adminController.updateUser);
-router.put('/admin/transactions/:id/approve', strictSecureAdminRoutes, adminController.approveTransaction);
-router.put('/admin/transactions/:id/reject', strictSecureAdminRoutes, adminController.rejectTransaction);
-
-// Quản lý thanh toán cược
-router.put('/admin/bets/:id/approve-payment', secureAdminRoutes, adminController.approveBetPayment);
-router.put('/admin/bets/:id/reject-payment', secureAdminRoutes, adminController.rejectBetPayment);
-router.put('/admin/bets/:id/double-confirm-payment', secureAdminRoutes, adminController.doubleConfirmBetPayment);
-
-// Quản lý thanh toán thắng cược
-router.get('/admin/payouts/pending', secureAdminRoutes, adminController.getPendingPayouts);
-router.post('/admin/payouts/confirm', strictSecureAdminRoutes, adminController.confirmPayouts);
-
-// Đối chiếu dữ liệu
-router.get('/admin/results/:resultId/verify', secureAdminRoutes, adminController.verifyResultData);
-
-// Quản lý bảo mật
-router.post('/admin/setup-2fa', adminAuth, adminController.setup2FA);
-router.post('/admin/activate-2fa', adminAuth, adminController.activate2FA);
-router.put('/admin/manage-allowed-ips', adminAuth, adminController.manageAllowedIps);
-
-// Nhật ký kiểm toán
-router.get('/admin/audit-logs', strictSecureAdminRoutes, (req, res, next) => {
-  const auditService = require('../services/auditService');
-  
-  auditService.getAllAuditLogs(req.query, {
-    page: parseInt(req.query.page) || 1,
-    limit: parseInt(req.query.limit) || 50
-  })
-    .then(result => {
-      res.status(200).json({
-        status: 'success',
-        data: result
-      });
-    })
-    .catch(err => next(err));
-});
+// === ADMIN SECURITY ROUTES ===
+router.get('/admin/2fa-status', adminAuth.verifyAdmin, asyncHandler(adminController.check2FAStatus));
+router.post('/admin/setup-2fa', adminAuth.verifyAdmin, asyncHandler(adminController.setup2FA));
+router.post('/admin/activate-2fa', adminAuth.verifyAdmin, asyncHandler(adminController.activate2FA));
+router.delete('/admin/disable-2fa', adminAuth.verifyAdmin, asyncHandler(adminController.disable2FA));
 
 module.exports = router;

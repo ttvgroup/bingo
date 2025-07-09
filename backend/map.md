@@ -6,10 +6,10 @@
 backend/
   ├── config/                # Cấu hình hệ thống
   │   ├── index.js           # Cấu hình chính
-  │   └── redis.js           # Cấu hình Redis
+  │   └── redis.js           # Cấu hình Redis nâng cao với khả năng phục hồi
   ├── controllers/           # Xử lý logic điều khiển
-  │   ├── adminController.js # Quản lý admin
-  │   ├── betController.js   # Quản lý đặt cược
+  │   ├── adminController.js # Quản lý admin với xác thực QR và Telegram
+  │   ├── betController.js   # Quản lý đặt cược với xử lý transaction
   │   ├── resultController.js# Quản lý kết quả
   │   ├── statsController.js # Quản lý thống kê
   │   ├── transactionController.js # Quản lý giao dịch
@@ -19,38 +19,68 @@ backend/
   │   └── weekly_kqxs.json   # Dữ liệu KQXS hàng tuần
   ├── logs/                  # Thư mục chứa log
   ├── middleware/            # Middleware
-  │   ├── adminAuth.js       # Xác thực admin
-  │   ├── auth.js            # Xác thực người dùng
-  │   └── roleAuth.js        # Phân quyền
+  │   ├── adminAuth.js       # Xác thực admin với quản lý thiết bị và QR code
+  │   ├── auth.js            # Xác thực người dùng qua Telegram
+  │   ├── roleAuth.js        # Phân quyền
+  │   ├── validation.js      # Xác thực và làm sạch dữ liệu đầu vào
+  │   ├── twoFactorAuth.js   # Xác thực hai lớp
+  │   └── rateLimit.js       # Giới hạn tốc độ truy cập
   ├── models/                # Định nghĩa dữ liệu
-  │   ├── Bet.js             # Model cược
-  │   ├── Result.js          # Model kết quả
+  │   ├── AuditLog.js        # Model ghi log hành động
+  │   ├── Bet.js             # Model cược với toàn vẹn dữ liệu
+  │   ├── Result.js          # Model kết quả với bảo mật nâng cao
+  │   ├── ResultHistory.js   # Model lịch sử thay đổi kết quả
   │   ├── Transaction.js     # Model giao dịch
-  │   └── User.js            # Model người dùng
+  │   └── User.js            # Model người dùng với quản lý thiết bị
   ├── routes/                # Định tuyến
-  │   ├── api.js             # API chính
+  │   ├── api.js             # API chính với xác thực thiết bị
   │   └── userRoutes.js      # Routes người dùng
   ├── services/              # Logic nghiệp vụ
-  │   ├── betService.js      # Xử lý cược
+  │   ├── betService.js      # Xử lý cược với transaction
+  │   ├── cacheService.js    # Quản lý cache
   │   ├── lotteryService.js  # Xử lý xổ số
-  │   ├── resultService.js   # Xử lý kết quả
+  │   ├── resultService.js   # Xử lý kết quả với transaction
   │   └── telegramService.js # Tích hợp Telegram
   ├── utils/                 # Tiện ích
   │   ├── error.js           # Xử lý lỗi
   │   ├── helper.js          # Hàm trợ giúp
   │   └── logger.js          # Ghi log
-  ├── server.js              # Điểm vào ứng dụng
+  ├── server.js              # Điểm vào ứng dụng với graceful shutdown
   └── package.json           # Thông tin dự án
 ```
 
 ## Luồng Xử Lý Chính
 
-1. **Khởi Động Ứng Dụng**: `server.js` khởi tạo Express, kết nối MongoDB và Redis
-2. **Định Tuyến**: Các routes trong `/routes` định nghĩa các API endpoints
-3. **Middleware**: Kiểm tra xác thực và phân quyền trước khi xử lý request
-4. **Controllers**: Xử lý các request, gọi services và trả về response
-5. **Services**: Chứa logic nghiệp vụ chính, tương tác với models
-6. **Models**: Định nghĩa cấu trúc dữ liệu và tương tác với database
+1. **Khởi Động Ứng Dụng**: 
+   - `server.js` khởi tạo Express, kết nối MongoDB và Redis
+   - Cấu hình graceful shutdown để đóng kết nối an toàn
+   - Xử lý lỗi toàn cục
+
+2. **Định Tuyến**: 
+   - Các routes trong `/routes` định nghĩa các API endpoints
+   - Tích hợp middleware xác thực thiết bị cho admin
+
+3. **Middleware**: 
+   - Xác thực người dùng Telegram thông qua `verifyTelegramAuth()`
+   - Xác thực thiết bị admin qua QR code và Telegram
+   - Phân quyền dựa trên vai trò người dùng
+   - Xác thực và làm sạch dữ liệu đầu vào
+   - Giới hạn tốc độ truy cập API
+
+4. **Controllers**: 
+   - Xử lý các request, gọi services và trả về response
+   - Kiểm tra dữ liệu đầu vào và xác thực quyền truy cập
+
+5. **Services**: 
+   - Chứa logic nghiệp vụ chính, tương tác với models
+   - Sử dụng MongoDB transactions để đảm bảo tính nhất quán dữ liệu
+   - Quản lý cache với Redis và TTL linh hoạt
+   - Atomic operations để tránh race conditions
+
+6. **Models**: 
+   - Định nghĩa cấu trúc dữ liệu và tương tác với database
+   - Tích hợp các hàm kiểm tra tính toàn vẹn dữ liệu
+   - Indexing tối ưu để cải thiện hiệu năng truy vấn
 
 ## Mối Quan Hệ Giữa Các Module
 
@@ -60,19 +90,19 @@ backend/
 | - api.js          |      | - auth.js     |      | - userCtrl    |
 | - userRoutes.js   |      | - adminAuth.js|      | - betCtrl     |
 +-------------------+      | - roleAuth.js |      | - resultCtrl  |
-                           +---------------+      | - etc...      |
-                                                  +-------+-------+
+                           | - validation.js|      | - etc...      |
+                           +---------------+      +-------+-------+
                                                           |
                                                           v
 +--------------+      +-----------------+      +----------+----------+
 | config/      |<-----| services/       |<---->| models/             |
 | - index.js   |      | - betService.js |      | - User.js           |
-| - redis.js   |      | - lotteryService|      | - Bet.js            |
+| - redis.js   |      | - cacheService  |      | - Bet.js            |
 +--------------+      | - resultService |      | - Result.js         |
         ^             | - telegramSvc   |      | - Transaction.js    |
-        |             +-----------------+      +---------------------+
-        |                     ^
-        |                     |
+        |             +-----------------+      | - AuditLog.js       |
+        |                     ^                | - ResultHistory.js  |
+        |                     |                +---------------------+
 +-------+---------+    +------+------+
 | utils/          |    | data/       |
 | - error.js      |    | - bet_types |
@@ -92,6 +122,21 @@ backend/
   role: String,               // Vai trò (user, admin, affiliate)
   affiliateCode: String,      // Mã giới thiệu (unique, sparse)
   referredBy: ObjectId,       // ID người giới thiệu
+  devices: [{                 // Danh sách thiết bị đã xác thực
+    deviceId: String,         // ID thiết bị
+    deviceName: String,       // Tên thiết bị
+    lastLogin: Date,          // Thời gian đăng nhập gần nhất
+    isVerified: Boolean       // Trạng thái xác thực
+  }],
+  twoFactorEnabled: Boolean,  // Bật xác thực hai lớp
+  telegramAuthCode: {         // Mã xác thực Telegram
+    code: String,             // Mã xác thực
+    expiresAt: Date           // Thời gian hết hạn
+  },
+  loginQrCode: {              // QR code đăng nhập
+    token: String,            // Token QR
+    expiresAt: Date           // Thời gian hết hạn
+  },
   createdAt: Date             // Ngày tạo
 }
 ```
@@ -107,7 +152,11 @@ backend/
   resultId: ObjectId,         // ID kết quả (tham chiếu đến Result)
   status: String,             // Trạng thái (pending, won, lost)
   provinceCode: String,       // Mã tỉnh đặt cược
-  winAmount: Number           // Số tiền thắng (nếu trúng)
+  winAmount: Number,          // Số tiền thắng (nếu trúng)
+  integrityHash: String,      // Hash đảm bảo tính toàn vẹn
+  ipAddress: String,          // Địa chỉ IP khi đặt cược
+  deviceInfo: String,         // Thông tin thiết bị
+  transactionTimestamp: Date  // Thời gian giao dịch
 }
 ```
 
@@ -117,7 +166,7 @@ backend/
   date: Date,                 // Ngày xổ số
   weekday: String,            // Thứ trong tuần
   region: String,             // Khu vực (Miền Nam, Miền Trung, Miền Bắc)
-  provinces: [{
+  provinces: [{               // Danh sách tỉnh
     name: String,             // Tên tỉnh/thành
     code: String,             // Mã tỉnh/thành
     info: String,             // Thông tin thêm
@@ -133,7 +182,11 @@ backend/
       special: String         // Giải đặc biệt (6 số)
     }
   }],
-  createdAt: Date             // Ngày tạo bản ghi
+  createdBy: ObjectId,        // Admin tạo kết quả
+  updatedBy: ObjectId,        // Admin cập nhật kết quả
+  createdAt: Date,            // Ngày tạo bản ghi
+  updatedAt: Date,            // Ngày cập nhật
+  securityHash: String        // Hash bảo mật kết quả
 }
 ```
 
@@ -141,210 +194,137 @@ backend/
 ```javascript
 {
   userId: ObjectId,           // ID người dùng (tham chiếu đến User)
-  type: String,               // Loại giao dịch (deposit, withdraw)
+  type: String,               // Loại giao dịch (deposit, withdraw, win, bet, referral)
   amount: Number,             // Số tiền giao dịch
-  status: String,             // Trạng thái (pending, completed, failed)
-  createdAt: Date             // Ngày tạo giao dịch
+  status: String,             // Trạng thái (pending, completed, failed, cancelled)
+  description: String,        // Mô tả giao dịch
+  reference: ObjectId,        // Tham chiếu đến đối tượng liên quan
+  referenceModel: String,     // Loại đối tượng tham chiếu
+  processedBy: ObjectId,      // Admin xử lý giao dịch
+  processedAt: Date,          // Thời gian xử lý
+  createdAt: Date,            // Ngày tạo giao dịch
+  metaData: Mixed,            // Dữ liệu bổ sung
+  transactionHash: String     // Hash bảo mật giao dịch
+}
+```
+
+### AuditLog (Nhật Ký Kiểm Toán)
+```javascript
+{
+  userId: ObjectId,           // ID người dùng thực hiện hành động
+  action: String,             // Loại hành động
+  ipAddress: String,          // Địa chỉ IP
+  deviceInfo: String,         // Thông tin thiết bị
+  targetId: ObjectId,         // ID đối tượng liên quan
+  targetType: String,         // Loại đối tượng
+  details: Mixed,             // Chi tiết hành động
+  createdAt: Date             // Ngày tạo
+}
+```
+
+### ResultHistory (Lịch Sử Kết Quả)
+```javascript
+{
+  resultId: ObjectId,         // ID kết quả
+  userId: ObjectId,           // ID người thực hiện thay đổi
+  action: String,             // Loại hành động
+  changeDetails: Mixed,       // Chi tiết thay đổi
+  previousState: Mixed,       // Trạng thái trước
+  newState: Mixed,            // Trạng thái sau
+  ipAddress: String,          // Địa chỉ IP
+  deviceInfo: String,         // Thông tin thiết bị
+  timestamp: Date,            // Thời gian thực hiện
+  securityHash: String        // Hash bảo mật
 }
 ```
 
 ## Luồng Xử Lý Chính
 
-### 1. Xác thực người dùng
+### 1. Xác thực người dùng với thiết bị
 - **middleware/auth.js** - Xác thực người dùng Telegram qua `verifyTelegramAuth()`
-- Kiểm tra hash từ Telegram để đảm bảo tính hợp lệ
+- **middleware/adminAuth.js** - Xác thực admin qua thiết bị và QR code
+- Quản lý thiết bị đã xác thực và mã xác thực Telegram
 - Phân quyền người dùng qua middleware `restrictTo()`
 
-### 2. Đặt cược
+### 2. Đặt cược với transaction
 - **controllers/betController.js** - Nhận request từ client
 - **services/betService.js** - Xử lý logic đặt cược:
-  - Kiểm tra thời gian đặt cược
+  - Khởi tạo MongoDB transaction
+  - Kiểm tra thời gian đặt cược (GMT+7)
   - Kiểm tra định dạng số
   - Kiểm tra số dư người dùng
-  - Tạo cược và cập nhật số dư
+  - Tạo cược và cập nhật số dư với atomic operations
+  - Tạo transaction record
+  - Xóa cache liên quan
+  - Commit hoặc rollback transaction
 
-### 3. Xử lý kết quả
+### 3. Xử lý kết quả với transaction
 - **controllers/resultController.js** - Quản lý kết quả xổ số
-- **services/lotteryService.js** - Kiểm tra kết quả và trả thưởng:
-  - Trích xuất các số từ kết quả
-  - So sánh với các cược đang chờ
-  - Xác định người thắng và cập nhật số dư
+- **services/resultService.js** - Kiểm tra kết quả và trả thưởng:
+  - Khởi tạo MongoDB transaction
+  - Tìm các cược đang chờ kết quả
+  - Xác định người thắng và tính toán tiền thưởng
+  - Cập nhật số dư người dùng với atomic operations
+  - Tạo transaction record
+  - Xóa cache liên quan
+  - Commit hoặc rollback transaction
   - Gửi thông báo qua Telegram
 
-### 4. Lọc và thống kê
-- **services/resultService.js** - Cung cấp các chức năng lọc:
-  - Lọc theo chữ số cuối
-  - Lọc theo nhiều chữ số cuối
-  - Thống kê tần suất xuất hiện
+### 4. Quản lý cache thông minh
+- **services/cacheService.js** - Quản lý cache với Redis:
+  - Định nghĩa các khóa cache chuẩn
+  - Quản lý TTL cho từng loại dữ liệu
+  - Fallback khi Redis không khả dụng
+  - Xóa cache thông minh khi dữ liệu thay đổi
+  - Cache các truy vấn phổ biến
 
-## Import/Export Quan Trọng
+### 5. Graceful Shutdown
+- **server.js** - Xử lý tắt server an toàn:
+  - Đóng kết nối HTTP server
+  - Đóng kết nối Redis
+  - Đóng kết nối MongoDB
+  - Ghi log quá trình shutdown
 
-### server.js
-```javascript
-// Import
-const express = require('express');
-const mongoose = require('mongoose');
-const redis = require('redis');
-const helmet = require('helmet');
-const cors = require('cors');
-const config = require('./config');
-const apiRoutes = require('./routes/api');
-const logger = require('./utils/logger');
+## API Endpoints Mới
 
-// Export
-module.exports = { app, redisClient };
-```
+### Admin Authentication API
+- `POST /api/admin/login/telegram/send-code` - Gửi mã xác thực qua Telegram
+- `POST /api/admin/login/telegram` - Đăng nhập bằng mã xác thực Telegram
+- `GET /api/admin/login/qr` - Lấy QR code để đăng nhập
+- `POST /api/admin/device/register` - Đăng ký thiết bị mới
+- `GET /api/admin/devices` - Lấy danh sách thiết bị đã đăng ký
+- `DELETE /api/admin/devices/:deviceId` - Xóa thiết bị đã đăng ký
 
-### config/index.js
-```javascript
-// Import
-const dotenv = require('dotenv');
+## Cải Tiến Bảo Mật
 
-// Export
-module.exports = {
-  port, nodeEnv, logLevel,
-  mongoURI, redisUrl, cacheExpiry,
-  telegramBotToken, telegramChannelId,
-  payoutRatios, baoLoQuantity,
-  bettingHoursStart, bettingHoursEnd,
-  allowedOrigins, rateLimiting
-};
-```
+1. **Xác thực thiết bị**: Thay thế IP restriction bằng xác thực thiết bị qua QR code
+2. **Hash toàn vẹn**: Đảm bảo tính toàn vẹn dữ liệu cho cược, kết quả và giao dịch
+3. **Xác thực hai lớp**: Kết hợp đăng nhập Telegram và xác thực thiết bị
+4. **Xử lý transaction**: Sử dụng MongoDB transaction để đảm bảo tính nhất quán dữ liệu
+5. **Atomic operations**: Sử dụng $inc, $set để tránh race condition
+6. **Validation chặt chẽ**: Kiểm tra và làm sạch dữ liệu đầu vào
+7. **Cache thông minh**: Quản lý cache với TTL và fallback
 
-### routes/api.js
-```javascript
-// Import
-const express = require('express');
-const userController = require('../controllers/userController');
-const betController = require('../controllers/betController');
-const resultController = require('../controllers/resultController');
-const statsController = require('../controllers/statsController');
-const transactionController = require('../controllers/transactionController');
-const adminController = require('../controllers/adminController');
-const auth = require('../middleware/auth');
-const adminAuth = require('../middleware/adminAuth');
-const roleAuth = require('../middleware/roleAuth');
+## Cải Tiến Hiệu Năng
 
-// Export
-module.exports = router;
-```
+1. **Indexing tối ưu**: Tạo index cho các trường thường xuyên truy vấn
+2. **Compound index**: Tạo index kết hợp cho các truy vấn phức tạp
+3. **Quản lý cache**: Chiến lược cache với TTL phù hợp cho từng loại dữ liệu
+4. **Projection**: Chỉ lấy các trường cần thiết khi truy vấn
+5. **Pagination**: Phân trang cho tất cả API trả về nhiều kết quả
+6. **Graceful shutdown**: Đóng kết nối an toàn khi tắt server
 
-### controllers/userController.js
-```javascript
-// Import
-const User = require('../models/User');
-const redisClient = require('../config/redis');
-const ApiError = require('../utils/error');
-
-// Export
-exports.register = async (req, res, next) => {...};
-exports.login = async (req, res, next) => {...};
-exports.getProfile = async (req, res, next) => {...};
-exports.updateProfile = async (req, res, next) => {...};
-exports.getUser = async (req, res, next) => {...};
-exports.createUser = async (req, res, next) => {...};
-```
-
-### middleware/auth.js
-```javascript
-// Import
-const User = require('../models/User');
-const ApiError = require('../utils/error');
-const crypto = require('crypto');
-const config = require('../config');
-
-// Export
-exports.verifyTelegramAuth = async (req, res, next) => {...};
-exports.restrictTo = (...roles) => {...};
-```
-
-### services/betService.js
-```javascript
-// Import
-const User = require('../models/User');
-const Bet = require('../models/Bet');
-const redisClient = require('../config/redis');
-const ApiError = require('../utils/error');
-const config = require('../config');
-const logger = require('../utils/logger');
-
-// Export
-exports.placeBet = async (telegramId, numbers, betType, amount, provinceCode) => {...};
-exports.getUserBets = async (telegramId) => {...};
-exports.getBetById = async (betId, telegramId) => {...};
-exports.getBetTypes = async () => {...};
-```
-
-### services/telegramService.js
-```javascript
-// Import
-const TelegramBot = require('node-telegram-bot-api');
-
-// Export
-exports.sendMessage = async (chatId, message) => {...};
-exports.notifyWinners = async (winners, result) => {...};
-```
-
-## API Endpoints
-
-### User API
-- `POST /api/users/register` - Đăng ký người dùng mới
-- `POST /api/users/login` - Đăng nhập
-- `GET /api/users/me` - Lấy thông tin cá nhân
-- `PUT /api/users/me` - Cập nhật thông tin cá nhân
-- `GET /api/:id` - Lấy thông tin người dùng theo ID
-- `POST /api/` - Tạo người dùng mới
-
-### Bet API
-- `POST /api/bets` - Đặt cược mới
-- `GET /api/bets` - Lấy danh sách cược của người dùng
-- `GET /api/bets/:id` - Lấy thông tin cược theo ID
-- `GET /api/bet-types` - Lấy danh sách các loại cược
-
-### Result API
-- `GET /api/results/latest` - Lấy kết quả mới nhất
-- `GET /api/results/:id` - Lấy kết quả theo ID
-- `GET /api/results/date/:date` - Lấy kết quả theo ngày
-- `GET /api/results/:resultId/filter` - Lọc kết quả theo chữ số cuối
-- `GET /api/results/:resultId/filter-multi` - Lọc kết quả theo nhiều chữ số cuối
-- `GET /api/results/statistics/frequency` - Thống kê tần suất chữ số cuối
-
-### Transaction API
-- `GET /api/transactions` - Lấy danh sách giao dịch của người dùng
-- `POST /api/transactions/deposit` - Tạo giao dịch nạp tiền
-- `POST /api/transactions/withdraw` - Tạo giao dịch rút tiền
-
-### Stats API
-- `GET /api/stats/user` - Lấy thống kê người dùng
-- `GET /api/stats/public` - Lấy thống kê công khai
-
-### Admin API
-- `POST /api/admin/results` - Tạo kết quả mới
-- `PUT /api/admin/results/:id` - Cập nhật kết quả
-- `DELETE /api/admin/results/:id` - Xóa kết quả
-- `GET /api/admin/users` - Lấy danh sách người dùng
-- `GET /api/admin/bets` - Lấy danh sách cược
-- `GET /api/admin/transactions` - Lấy danh sách giao dịch
-- `PUT /api/admin/users/:id` - Cập nhật thông tin người dùng
-- `PUT /api/admin/transactions/:id/approve` - Phê duyệt giao dịch
-- `PUT /api/admin/transactions/:id/reject` - Từ chối giao dịch
-
-## Cấu Hình Hệ Thống
-
-### Môi Trường
-- Node.js, Express
-- MongoDB (database)
-- Redis (cache)
-- Telegram Bot API
-
-### Các Biến Môi Trường Cần Thiết
+## Biến Môi Trường Cập Nhật
 ```
 PORT=5000
 NODE_ENV=development
 LOG_LEVEL=info
 MONGO_URI=mongodb://localhost/telegram-lottery-game
 REDIS_URL=redis://localhost:6379
-CACHE_EXPIRY=3600
+CACHE_TTL_SHORT=60
+CACHE_TTL_MEDIUM=300
+CACHE_TTL_LONG=3600
+CACHE_TTL_VERY_LONG=86400
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHANNEL_ID=your_channel_id
 PAYOUT_RATIO_2D=70
@@ -354,64 +334,17 @@ PAYOUT_RATIO_BAO_LO_2D=70
 PAYOUT_RATIO_BAO_LO_3D=600
 PAYOUT_RATIO_BAO_LO_4D=5000
 BETTING_HOURS_START=0
-BETTING_HOURS_END=8
+BETTING_HOURS_END=15.5
 ALLOWED_ORIGINS=http://localhost:3000
 RATE_LIMIT_WINDOW=900000
 RATE_LIMIT_MAX=100
 ```
 
-## Tiện Ích
-
-### logger.js
-Module ghi log sử dụng Winston:
-- Ghi log theo cấp độ: error, warn, info, debug
-- Lưu log vào file và hiển thị trên console
-
-### error.js
-Lớp ApiError để xử lý lỗi chuẩn hóa:
-- Định nghĩa các loại lỗi với mã HTTP tương ứng
-- Hỗ trợ phân loại lỗi hệ thống và lỗi nghiệp vụ
-
-### helper.js
-Các hàm trợ giúp chung:
-- Định dạng ngày tháng
-- Xử lý chuỗi
-- Các hàm tiện ích khác
-
-## Security
-
-1. **Xác Thực**: Middleware auth.js kiểm tra tính hợp lệ của người dùng Telegram
-2. **Phân Quyền**: Middleware roleAuth.js kiểm tra vai trò người dùng
-3. **Admin**: Middleware adminAuth.js kiểm tra quyền admin
-4. **API Security**: Helmet, CORS protection
-5. **Rate Limiting**: Giới hạn số lượng request
-
-## Quy Trình Chính
-
-### 1. Đặt Cược
-1. Người dùng gửi request đặt cược với số cược và số tiền
-2. Hệ thống kiểm tra thời gian và định dạng cược
-3. Hệ thống kiểm tra số dư người dùng
-4. Trừ tiền từ tài khoản và lưu thông tin cược
-
-### 2. Xổ Số
-1. Admin tạo kết quả xổ số mới
-2. Hệ thống kiểm tra tất cả các cược chưa giải quyết
-3. Xác định người thắng và tính toán tiền thưởng
-4. Cập nhật số dư người dùng và trạng thái cược
-5. Thông báo kết quả qua Telegram
-
-### 3. Giao Dịch
-1. Người dùng yêu cầu nạp/rút tiền
-2. Hệ thống tạo giao dịch với trạng thái "pending"
-3. Admin xem xét và phê duyệt/từ chối
-4. Hệ thống cập nhật số dư người dùng (nếu được phê duyệt)
-5. Thông báo kết quả cho người dùng
-
-## Cách Triển Khai
+## Khởi động và Triển khai
 
 1. Cài đặt Node.js và npm
 2. Cài đặt MongoDB và Redis
 3. Cài đặt các dependencies: `npm install`
 4. Thiết lập biến môi trường (.env)
 5. Chạy ứng dụng: `npm start`
+6. Để phát triển: `npm run dev`

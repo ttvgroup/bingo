@@ -11,10 +11,13 @@
   },
   "dependencies": {
     "@twa-dev/sdk": "^8.0.2",
+    "axios": "^1.10.0",
     "dotenv": "^17.0.1",
     "express": "^5.1.0",
     "mongoose": "^8.16.1",
     "node-telegram-bot-api": "^0.66.0",
-    "redis": "^5.5.6"
+    "qrcode": "^1.5.4",
+    "redis": "^5.5.6",
+    "speakeasy": "^2.0.0"
   }
 }

@@ -5,6 +5,7 @@ const betService = require('../services/betService');
 const { body, validationResult } = require('express-validator');
 const logger = require('../utils/logger');
 const config = require('../config');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * Validator cho đặt cược
@@ -78,7 +79,7 @@ const checkBettingTime = () => {
  */
 exports.placeBet = [
   exports.betValidation,
-  async (req, res, next) => {
+  asyncHandler(async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return next(new ApiError('Validation error', 400, errors.array()));
@@ -89,27 +90,23 @@ exports.placeBet = [
       return next(new ApiError('Ngoài thời gian đặt cược. Chỉ được đặt cược từ 00:01 đến 15:30 hàng ngày (giờ Việt Nam)', 403));
     }
     
-    try {
-      const { numbers, betType, amount, provinceCode } = req.body;
-      const userId = req.user._id;
-      
-      // Lưu thông tin thiết bị và IP
-      const metadata = {
-        ipAddress: req.ip || req.connection.remoteAddress,
-        deviceInfo: req.headers['user-agent'] || 'Unknown'
-      };
-      
-      // Sử dụng betService để đặt cược với transaction
-      const bet = await betService.placeBet(userId, numbers, betType, amount, provinceCode, metadata);
-      
-      res.status(201).json({
-        success: true,
-        data: bet
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    const { numbers, betType, amount, provinceCode } = req.body;
+    const userId = req.user._id;
+    
+    // Lưu thông tin thiết bị và IP
+    const metadata = {
+      ipAddress: req.ip || req.connection.remoteAddress,
+      deviceInfo: req.headers['user-agent'] || 'Unknown'
+    };
+    
+    // Sử dụng betService để đặt cược với transaction
+    const bet = await betService.placeBet(userId, numbers, betType, amount, provinceCode, metadata);
+    
+    res.status(201).json({
+      success: true,
+      data: bet
+    });
+  })
 ];
 
 /**
@@ -117,83 +114,191 @@ exports.placeBet = [
  * @desc Lấy danh sách cược của người dùng
  * @access Private
  */
-exports.getUserBets = async (req, res, next) => {
-  try {
-    const userId = req.user._id;
-    const options = {
-      page: parseInt(req.query.page, 10) || 1,
-      limit: parseInt(req.query.limit, 10) || 20,
-      status: req.query.status,
-      startDate: req.query.startDate ? new Date(req.query.startDate) : null,
-      endDate: req.query.endDate ? new Date(req.query.endDate) : null
-    };
-    
-    // Sử dụng betService để lấy danh sách cược (có cache)
-    const result = await betService.getUserBets(userId, options);
-    
-    res.status(200).json({
-      success: true,
-      count: result.count,
-      total: result.total,
-      pagination: result.pagination,
-      data: result.bets
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+exports.getUserBets = asyncHandler(async (req, res, next) => {
+  const userId = req.user._id;
+  const options = {
+    page: parseInt(req.query.page, 10) || 1,
+    limit: parseInt(req.query.limit, 10) || 20,
+    status: req.query.status,
+    startDate: req.query.startDate ? new Date(req.query.startDate) : null,
+    endDate: req.query.endDate ? new Date(req.query.endDate) : null
+  };
+  
+  // Sử dụng betService để lấy danh sách cược (có cache)
+  const result = await betService.getUserBets(userId, options);
+  
+  res.status(200).json({
+    success: true,
+    count: result.count,
+    total: result.total,
+    pagination: result.pagination,
+    data: result.bets
+  });
+});
 
 /**
  * @route GET /api/bets/:id
  * @desc Lấy thông tin chi tiết một cược
  * @access Private
  */
-exports.getBet = async (req, res, next) => {
-  try {
-    const betId = req.params.id;
-    const userId = req.user._id;
-    
-    // Sử dụng betService để lấy thông tin cược (có cache)
-    const bet = await betService.getBetById(betId, userId);
-    
-    // Bỏ một số trường nhạy cảm
-    const betData = {
-      id: bet._id,
-      numbers: bet.numbers,
-      betType: bet.betType,
-      amount: bet.amount,
-      status: bet.status,
-      provinceCode: bet.provinceCode,
-      createdAt: bet.createdAt,
-      winAmount: bet.winAmount,
-      resultId: bet.resultId
-    };
-    
-    res.status(200).json({
-      success: true,
-      data: betData
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+exports.getUserBetById = asyncHandler(async (req, res, next) => {
+  const betId = req.params.id;
+  const userId = req.user._id;
+  
+  // Sử dụng betService để lấy thông tin cược (có cache)
+  const bet = await betService.getBetById(betId, userId);
+  
+  // Bỏ một số trường nhạy cảm
+  const betData = {
+    id: bet._id,
+    numbers: bet.numbers,
+    betType: bet.betType,
+    amount: bet.amount,
+    status: bet.status,
+    provinceCode: bet.provinceCode,
+    createdAt: bet.createdAt,
+    winAmount: bet.winAmount,
+    resultId: bet.resultId
+  };
+  
+  res.status(200).json({
+    success: true,
+    data: betData
+  });
+});
 
 /**
  * @route GET /api/bet-types
  * @desc Lấy danh sách loại cược
  * @access Public
  */
-exports.getBetTypes = async (req, res, next) => {
-  try {
-    // Sử dụng betService để lấy danh sách loại cược (có cache)
-    const betTypes = await betService.getBetTypes();
-    
-    res.status(200).json({
-      success: true,
-      count: betTypes.length,
-      data: betTypes
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+exports.getBetTypes = asyncHandler(async (req, res, next) => {
+  // Sử dụng betService để lấy danh sách loại cược (có cache)
+  const betTypes = await betService.getBetTypes();
+  
+  res.status(200).json({
+    success: true,
+    count: betTypes.length,
+    data: betTypes
+  });
+});
+
+/**
+ * @route GET /api/admin/bets
+ * @desc Lấy danh sách cược cho admin
+ * @access Admin
+ */
+exports.getAdminBets = asyncHandler(async (req, res, next) => {
+  const options = {
+    page: parseInt(req.query.page, 10) || 1,
+    limit: parseInt(req.query.limit, 10) || 20,
+    status: req.query.status,
+    userId: req.query.userId,
+    startDate: req.query.startDate ? new Date(req.query.startDate) : null,
+    endDate: req.query.endDate ? new Date(req.query.endDate) : null
+  };
+  
+  // Sử dụng betService để lấy danh sách cược
+  const result = await betService.getAdminBets(options);
+  
+  res.status(200).json({
+    success: true,
+    count: result.count,
+    total: result.total,
+    pagination: result.pagination,
+    data: result.bets
+  });
+});
+
+/**
+ * @route GET /api/admin/bets/:id
+ * @desc Lấy thông tin chi tiết một cược cho admin
+ * @access Admin
+ */
+exports.getAdminBetById = asyncHandler(async (req, res, next) => {
+  const betId = req.params.id;
+  
+  // Sử dụng betService để lấy thông tin cược
+  const bet = await betService.getAdminBetById(betId);
+  
+  res.status(200).json({
+    success: true,
+    data: bet
+  });
+});
+
+/**
+ * @route GET /api/bets/history
+ * @desc Lấy lịch sử cược của người dùng
+ * @access Private
+ */
+exports.getUserBetHistory = asyncHandler(async (req, res, next) => {
+  const userId = req.user._id;
+  const options = {
+    page: parseInt(req.query.page, 10) || 1,
+    limit: parseInt(req.query.limit, 10) || 20,
+    startDate: req.query.startDate ? new Date(req.query.startDate) : null,
+    endDate: req.query.endDate ? new Date(req.query.endDate) : null
+  };
+  
+  // Sử dụng betService để lấy lịch sử cược
+  const result = await betService.getUserBetHistory(userId, options);
+  
+  res.status(200).json({
+    success: true,
+    count: result.count,
+    total: result.total,
+    pagination: result.pagination,
+    data: result.bets
+  });
+});
+
+/**
+ * @route GET /api/bets/active
+ * @desc Lấy danh sách cược đang hoạt động của người dùng
+ * @access Private
+ */
+exports.getUserActiveBets = asyncHandler(async (req, res, next) => {
+  const userId = req.user._id;
+  const options = {
+    page: parseInt(req.query.page, 10) || 1,
+    limit: parseInt(req.query.limit, 10) || 20
+  };
+  
+  // Sử dụng betService để lấy cược đang hoạt động
+  const result = await betService.getUserActiveBets(userId, options);
+  
+  res.status(200).json({
+    success: true,
+    count: result.count,
+    total: result.total,
+    pagination: result.pagination,
+    data: result.bets
+  });
+});
+
+/**
+ * @route GET /api/bets/winners
+ * @desc Lấy danh sách cược thắng của người dùng
+ * @access Private
+ */
+exports.getWinningBets = asyncHandler(async (req, res, next) => {
+  const userId = req.user._id;
+  const options = {
+    page: parseInt(req.query.page, 10) || 1,
+    limit: parseInt(req.query.limit, 10) || 20,
+    startDate: req.query.startDate ? new Date(req.query.startDate) : null,
+    endDate: req.query.endDate ? new Date(req.query.endDate) : null
+  };
+  
+  // Sử dụng betService để lấy cược thắng
+  const result = await betService.getUserWinningBets(userId, options);
+  
+  res.status(200).json({
+    success: true,
+    count: result.count,
+    total: result.total,
+    pagination: result.pagination,
+    data: result.bets
+  });
+});

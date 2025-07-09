@@ -97,36 +97,54 @@ exports.transactionValidation = [
 ];
 
 /**
- * Kiểm tra nội dung JSON và ngăn chặn tấn công nguyên mẫu
+ * Middleware để làm sạch dữ liệu JSON đầu vào
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next function
  */
 exports.sanitizeJson = (req, res, next) => {
-  // Kiểm tra nếu không có body hoặc không phải JSON
-  if (!req.body || typeof req.body !== 'object') {
-    return next();
+  if (req.body && typeof req.body === 'object') {
+    // Loại bỏ các trường có giá trị undefined hoặc null
+    Object.keys(req.body).forEach(key => {
+      if (req.body[key] === undefined || req.body[key] === null) {
+        delete req.body[key];
+      }
+    });
+    
+    // Loại bỏ các ký tự đặc biệt trong các trường string
+    sanitizeObject(req.body);
   }
   
-  try {
-    // Kiểm tra và loại bỏ các trường có thể gây nguy hiểm
-    const sanitizeObject = (obj) => {
-      if (obj === null || typeof obj !== 'object') return obj;
-      
-      // Loại bỏ các trường nhạy cảm
-      delete obj.__proto__;
-      delete obj.constructor;
-      
-      // Xử lý đệ quy cho các đối tượng con
-      Object.keys(obj).forEach(key => {
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-          obj[key] = sanitizeObject(obj[key]);
-        }
-      });
-      
-      return obj;
-    };
+  next();
+};
+
+/**
+ * Hàm đệ quy để làm sạch dữ liệu trong object
+ * @param {Object} obj - Object cần làm sạch
+ */
+function sanitizeObject(obj) {
+  Object.keys(obj).forEach(key => {
+    const value = obj[key];
     
-    req.body = sanitizeObject(req.body);
-    next();
-  } catch (error) {
-    next(new ApiError('Invalid request body format', 400));
-  }
-}; 
+    if (typeof value === 'string') {
+      // Loại bỏ các ký tự đặc biệt trong string
+      obj[key] = sanitizeString(value);
+    } else if (typeof value === 'object' && value !== null) {
+      // Làm sạch đệ quy cho object con
+      sanitizeObject(value);
+    }
+  });
+}
+
+/**
+ * Hàm làm sạch string
+ * @param {String} str - String cần làm sạch
+ * @returns {String} - String đã làm sạch
+ */
+function sanitizeString(str) {
+  // Loại bỏ các ký tự có thể gây lỗi bảo mật
+  return str
+    .replace(/[<>]/g, '') // Loại bỏ các thẻ HTML
+    .replace(/javascript:/gi, '') // Loại bỏ javascript:
+    .replace(/on\w+=/gi, ''); // Loại bỏ các sự kiện on*=
+} 

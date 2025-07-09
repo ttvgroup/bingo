@@ -1,54 +1,50 @@
 const winston = require('winston');
-const config = require('../config');
+const path = require('path');
+const fs = require('fs');
 
-// Định nghĩa định dạng log
+// Tạo thư mục logs nếu chưa tồn tại
+const logDir = path.join(__dirname, '../logs');
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir);
+}
+
+// Định nghĩa format log
 const logFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-  winston.format.printf(({ level, message, timestamp, stack }) => {
-    return `${timestamp} ${level.toUpperCase()}: ${stack || message}`;
-  })
+  winston.format.errors({ stack: true }),
+  winston.format.splat(),
+  winston.format.json()
 );
 
-// Tạo logger với các cấu hình
+// Tạo logger
 const logger = winston.createLogger({
-  level: config.logLevel,
-  format: winston.format.combine(
-    winston.format.errors({ stack: true }),
-    logFormat
-  ),
+  level: process.env.LOG_LEVEL || 'info',
+  format: logFormat,
+  defaultMeta: { service: 'telegram-lottery' },
   transports: [
-    // Log thông tin vào console
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        logFormat
-      ),
-    }),
-    
-    // Log errors vào file
-    new winston.transports.File({
-      filename: 'logs/error.log',
+    // Ghi log vào file
+    new winston.transports.File({ 
+      filename: path.join(logDir, 'error.log'), 
       level: 'error',
       maxsize: 5242880, // 5MB
-      maxFiles: 5,
+      maxFiles: 5
     }),
-    
-    // Log tất cả vào file
-    new winston.transports.File({
-      filename: 'logs/combined.log',
+    new winston.transports.File({ 
+      filename: path.join(logDir, 'combined.log'),
       maxsize: 5242880, // 5MB
-      maxFiles: 10,
-    }),
-  ],
+      maxFiles: 5
+    })
+  ]
 });
 
-// Không ghi log vào file khi ở môi trường test
-if (process.env.NODE_ENV === 'test') {
-  logger.transports.forEach((t) => {
-    if (t instanceof winston.transports.File) {
-      t.silent = true;
-    }
-  });
+// Nếu không phải môi trường production, ghi log ra console
+if (process.env.NODE_ENV !== 'production') {
+  logger.add(new winston.transports.Console({
+    format: winston.format.combine(
+      winston.format.colorize(),
+      winston.format.simple()
+    )
+  }));
 }
 
 module.exports = logger; 

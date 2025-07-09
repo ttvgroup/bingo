@@ -12,6 +12,8 @@ const qrcode = require('qrcode'); // Cần cài đặt nếu chưa có
 const telegramService = require('../services/telegramService');
 const crypto = require('crypto');
 const { validationResult } = require('express-validator');
+const resultService = require('../services/resultService');
+const jwt = require('jsonwebtoken'); // Cần cài đặt nếu chưa có
 
 /**
  * Controller quản lý các chức năng của admin
@@ -322,6 +324,39 @@ exports.approveResult = async (req, res, next) => {
 };
 
 /**
+ * Tạo kết quả xổ số mới
+ * @route POST /api/admin/results
+ * @access Admin
+ */
+exports.createResult = async (req, res, next) => {
+  try {
+    const { date, weekday, region, provinces } = req.body;
+    
+    if (!date || !weekday || !region || !provinces || !Array.isArray(provinces) || provinces.length === 0) {
+      return next(new ApiError('Dữ liệu kết quả không đầy đủ', 400));
+    }
+    
+    const adminId = req.adminUser._id;
+    
+    // Sử dụng resultService để tạo kết quả
+    const result = await resultService.createResult(
+      { date, weekday, region, provinces },
+      adminId
+    );
+    
+    // Ghi log hành động
+    await auditService.logAction(adminId, 'CREATE_RESULT', result._id, 'Result');
+    
+    res.status(201).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Thiết lập xác thực hai yếu tố (2FA) cho admin
  * 
  * @route POST /api/admin/setup-2fa
@@ -522,170 +557,418 @@ exports.getLoginQR = async (req, res, next) => {
 };
 
 /**
- * Gửi mã xác thực đăng nhập qua Telegram
+ * Gửi mã xác thực qua Telegram
  * @route POST /api/admin/login/telegram/send-code
- * @access Public
  */
 exports.sendTelegramCode = async (req, res, next) => {
   try {
     const { telegramId } = req.body;
     
     if (!telegramId) {
-      return next(new ApiError('Telegram ID is required', 400));
+      return next(new ApiError('Thiếu Telegram ID', 400));
     }
     
-    // Kiểm tra xem có phải admin không
-    const user = await User.findOne({ telegramId, role: 'admin' });
+    // Tìm admin theo Telegram ID
+    const admin = await User.findOne({ telegramId, role: 'admin' });
     
-    if (!user) {
-      return next(new ApiError('User not found or not an admin', 404));
+    if (!admin) {
+      return next(new ApiError('Không tìm thấy admin với Telegram ID này', 404));
     }
     
-    // Gửi mã xác thực
-    const sent = await telegramService.sendAuthCode(telegramId);
+    // Tạo mã xác thực ngẫu nhiên
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    if (!sent) {
-      return next(new ApiError('Failed to send authentication code', 500));
-    }
+    // Lưu mã xác thực và thời gian hết hạn (10 phút)
+    admin.telegramAuthCode = {
+      code,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+    };
+    
+    await admin.save();
+    
+    // Gửi mã xác thực qua Telegram
+    await telegramService.sendMessage(telegramId, `Mã xác thực đăng nhập của bạn là: ${code}`);
     
     res.status(200).json({
       success: true,
-      message: 'Authentication code sent successfully'
+      message: 'Mã xác thực đã được gửi qua Telegram'
     });
   } catch (error) {
-    next(new ApiError(error.message, 500));
+    next(error);
   }
 };
 
 /**
  * Đăng nhập bằng mã xác thực Telegram
  * @route POST /api/admin/login/telegram
- * @access Public
  */
 exports.loginWithTelegram = async (req, res, next) => {
   try {
-    // Validation đã được thực hiện trong middleware
+    // adminUser đã được đặt trong middleware verifyTelegramCode
+    const admin = req.adminUser;
     
-    // Tạo token đăng nhập
-    const token = crypto.randomBytes(32).toString('hex');
-    
-    // Cập nhật thông tin thiết bị
-    const { deviceId, deviceName } = req.body;
-    
-    // Kiểm tra xem thiết bị đã tồn tại chưa
-    const existingDevice = req.adminUser.devices.find(device => device.deviceId === deviceId);
-    
-    if (!existingDevice) {
-      req.adminUser.devices.push({
-        deviceId,
-        deviceName: deviceName || 'Unknown device',
-        lastLogin: new Date(),
-        isVerified: true
-      });
-      
-      await req.adminUser.save();
-      
-      // Thông báo đăng nhập từ thiết bị mới
-      telegramService.notifyNewDeviceLogin(req.adminUser.telegramId, {
-        deviceName: deviceName || 'Unknown device'
-      }).catch(err => console.error('Error sending login notification:', err));
-    } else {
-      existingDevice.lastLogin = new Date();
-      await req.adminUser.save();
-    }
+    // Tạo token JWT
+    const token = jwt.sign(
+      { id: admin.telegramId, role: admin.role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '1d' }
+    );
     
     res.status(200).json({
       success: true,
       token,
-      user: {
-        id: req.adminUser._id,
-        telegramId: req.adminUser.telegramId,
-        username: req.adminUser.username,
-        role: req.adminUser.role
+      admin: {
+        telegramId: admin.telegramId,
+        username: admin.username,
+        role: admin.role
       }
     });
   } catch (error) {
-    next(new ApiError(error.message, 500));
+    next(error);
   }
 };
 
 /**
- * Đăng ký thiết bị mới qua QR code
+ * Tạo QR code để đăng nhập
+ * @route GET /api/admin/login/qr
+ */
+exports.generateLoginQR = async (req, res, next) => {
+  try {
+    const { telegramId } = req.query;
+    
+    if (!telegramId) {
+      return next(new ApiError('Thiếu Telegram ID', 400));
+    }
+    
+    // Tìm admin theo Telegram ID
+    const admin = await User.findOne({ telegramId, role: 'admin' });
+    
+    if (!admin) {
+      return next(new ApiError('Không tìm thấy admin với Telegram ID này', 404));
+    }
+    
+    // Tạo token QR ngẫu nhiên
+    const token = crypto.randomBytes(32).toString('hex');
+    
+    // Lưu token QR và thời gian hết hạn (5 phút)
+    admin.loginQrCode = {
+      token,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+    };
+    
+    await admin.save();
+    
+    // Trả về token QR
+    res.status(200).json({
+      success: true,
+      qrToken: token,
+      expiresAt: admin.loginQrCode.expiresAt
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Đăng ký thiết bị mới
  * @route POST /api/admin/device/register
- * @access Public
  */
 exports.registerDevice = async (req, res, next) => {
   try {
-    // Validation và xử lý đã được thực hiện trong middleware
+    const admin = req.adminUser;
+    const { deviceId, deviceName } = req.deviceInfo;
+    
+    // Kiểm tra xem thiết bị đã được đăng ký chưa
+    const existingDevice = admin.devices.find(d => d.deviceId === deviceId);
+    
+    if (existingDevice) {
+      // Nếu đã tồn tại, cập nhật thông tin
+      existingDevice.deviceName = deviceName;
+      existingDevice.lastLogin = new Date();
+      existingDevice.isVerified = true;
+    } else {
+      // Nếu chưa tồn tại, thêm mới
+      admin.devices.push({
+        deviceId,
+        deviceName,
+        lastLogin: new Date(),
+        isVerified: true
+      });
+    }
+    
+    // Xóa QR code sau khi đã sử dụng
+    admin.loginQrCode = undefined;
+    await admin.save();
+    
+    // Tạo token JWT
+    const token = jwt.sign(
+      { id: admin.telegramId, role: admin.role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
     
     res.status(200).json({
       success: true,
-      message: 'Device registered successfully',
-      user: {
-        id: req.adminUser._id,
-        telegramId: req.adminUser.telegramId,
-        username: req.adminUser.username,
-        role: req.adminUser.role
-      }
+      message: 'Thiết bị đã được đăng ký thành công',
+      token,
+      deviceId
     });
   } catch (error) {
-    next(new ApiError(error.message, 500));
+    next(error);
   }
 };
 
 /**
  * Lấy danh sách thiết bị đã đăng ký
  * @route GET /api/admin/devices
- * @access Admin
  */
 exports.getRegisteredDevices = async (req, res, next) => {
   try {
-    const devices = req.adminUser.devices.map(device => ({
-      deviceId: device.deviceId,
-      deviceName: device.deviceName,
-      lastLogin: device.lastLogin,
-      isVerified: device.isVerified
-    }));
+    const admin = req.adminUser;
     
     res.status(200).json({
       success: true,
-      count: devices.length,
-      data: devices
+      devices: admin.devices
     });
   } catch (error) {
-    next(new ApiError(error.message, 500));
+    next(error);
   }
 };
 
 /**
  * Xóa thiết bị đã đăng ký
  * @route DELETE /api/admin/devices/:deviceId
- * @access Admin
  */
 exports.removeDevice = async (req, res, next) => {
   try {
+    const admin = req.adminUser;
     const { deviceId } = req.params;
     
-    if (!deviceId) {
-      return next(new ApiError('Device ID is required', 400));
-    }
-    
-    // Tìm index của thiết bị
-    const deviceIndex = req.adminUser.devices.findIndex(device => device.deviceId === deviceId);
+    // Tìm vị trí của thiết bị trong mảng
+    const deviceIndex = admin.devices.findIndex(d => d.deviceId === deviceId);
     
     if (deviceIndex === -1) {
-      return next(new ApiError('Device not found', 404));
+      return next(new ApiError('Không tìm thấy thiết bị', 404));
     }
     
-    // Xóa thiết bị
-    req.adminUser.devices.splice(deviceIndex, 1);
-    await req.adminUser.save();
+    // Xóa thiết bị khỏi mảng
+    admin.devices.splice(deviceIndex, 1);
+    await admin.save();
     
     res.status(200).json({
       success: true,
-      message: 'Device removed successfully'
+      message: 'Thiết bị đã được xóa thành công'
     });
   } catch (error) {
-    next(new ApiError(error.message, 500));
+    next(error);
+  }
+};
+
+/**
+ * Lấy danh sách thanh toán đang chờ xử lý
+ * @route GET /api/admin/payouts/pending
+ */
+exports.getPendingPayouts = async (req, res, next) => {
+  try {
+    const pendingPayouts = await Transaction.find({
+      type: 'withdraw',
+      status: 'pending'
+    }).populate('userId', 'telegramId username');
+    
+    res.status(200).json({
+      success: true,
+      count: pendingPayouts.length,
+      data: pendingPayouts
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xác nhận thanh toán
+ * @route POST /api/admin/payouts/confirm
+ */
+exports.confirmPayouts = async (req, res, next) => {
+  try {
+    const { transactionIds } = req.body;
+    
+    if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
+      return next(new ApiError('Danh sách giao dịch không hợp lệ', 400));
+    }
+    
+    const adminId = req.adminUser._id;
+    
+    // Cập nhật trạng thái các giao dịch
+    const result = await Transaction.updateMany(
+      {
+        _id: { $in: transactionIds },
+        type: 'withdraw',
+        status: 'pending'
+      },
+      {
+        $set: {
+          status: 'completed',
+          processedBy: adminId,
+          processedAt: new Date()
+        }
+      }
+    );
+    
+    res.status(200).json({
+      success: true,
+      message: `Đã xác nhận ${result.modifiedCount} giao dịch thanh toán`
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Kiểm tra trạng thái 2FA
+ * @route GET /api/admin/2fa-status
+ */
+exports.check2FAStatus = async (req, res, next) => {
+  try {
+    const admin = req.adminUser;
+    
+    res.status(200).json({
+      success: true,
+      enabled: admin.twoFactorEnabled
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Thiết lập 2FA
+ * @route POST /api/admin/setup-2fa
+ */
+exports.setup2FA = async (req, res, next) => {
+  try {
+    const admin = req.adminUser;
+    
+    // Tạo secret cho 2FA
+    const secret = speakeasy.generateSecret({ length: 20 });
+    
+    // Tạo QR code
+    const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+    
+    // Lưu secret tạm thời
+    admin.twoFactorTempSecret = secret.base32;
+    await admin.save();
+    
+    res.status(200).json({
+      success: true,
+      secret: secret.base32,
+      qrCode: qrCodeUrl
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Kích hoạt 2FA
+ * @route POST /api/admin/activate-2fa
+ */
+exports.activate2FA = async (req, res, next) => {
+  try {
+    const admin = req.adminUser;
+    const { token } = req.body;
+    
+    if (!token) {
+      return next(new ApiError('Thiếu token xác thực', 400));
+    }
+    
+    // Kiểm tra token
+    const verified = speakeasy.totp.verify({
+      secret: admin.twoFactorTempSecret,
+      encoding: 'base32',
+      token
+    });
+    
+    if (!verified) {
+      return next(new ApiError('Token không hợp lệ', 400));
+    }
+    
+    // Kích hoạt 2FA
+    admin.twoFactorSecret = admin.twoFactorTempSecret;
+    admin.twoFactorEnabled = true;
+    admin.twoFactorTempSecret = undefined;
+    await admin.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Xác thực hai lớp đã được kích hoạt'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Vô hiệu hóa 2FA
+ * @route DELETE /api/admin/disable-2fa
+ */
+exports.disable2FA = async (req, res, next) => {
+  try {
+    const admin = req.adminUser;
+    const { token } = req.body;
+    
+    if (!token) {
+      return next(new ApiError('Thiếu token xác thực', 400));
+    }
+    
+    // Kiểm tra token
+    const verified = speakeasy.totp.verify({
+      secret: admin.twoFactorSecret,
+      encoding: 'base32',
+      token
+    });
+    
+    if (!verified) {
+      return next(new ApiError('Token không hợp lệ', 400));
+    }
+    
+    // Vô hiệu hóa 2FA
+    admin.twoFactorEnabled = false;
+    admin.twoFactorSecret = undefined;
+    await admin.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Xác thực hai lớp đã bị vô hiệu hóa'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Xác thực kết quả với nguồn bên ngoài
+ * @route POST /api/admin/results/:id/verify-external
+ */
+exports.verifyResultWithExternalSources = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Tìm kết quả
+    const result = await Result.findById(id);
+    
+    if (!result) {
+      return next(new ApiError('Không tìm thấy kết quả', 404));
+    }
+    
+    // Xác thực kết quả với nguồn bên ngoài
+    const verification = await resultVerificationService.verifyResult(result);
+    
+    res.status(200).json({
+      success: true,
+      verification
+    });
+  } catch (error) {
+    next(error);
   }
 };

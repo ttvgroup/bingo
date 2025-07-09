@@ -1,0 +1,36 @@
+2025-07-09 15:17:32 ERROR: MongooseServerSelectionError: connect ECONNREFUSED ::1:27017
+    at Connection.openUri (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/connection.js:825:32)
+    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:414:10
+    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:41:5
+    at new Promise (<anonymous>)
+    at promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:40:10)
+    at Mongoose._promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:1290:10)
+    at Mongoose.connect (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:413:20)
+    at connectDB (/home/vboxuser/Documents/bingo/backend/server.js:54:20)
+    at startServer (/home/vboxuser/Documents/bingo/backend/server.js:70:31)
+    at Object.<anonymous> (/home/vboxuser/Documents/bingo/backend/server.js:141:1)
+    at Module._compile (node:internal/modules/cjs/loader:1356:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1414:10)
+    at Module.load (node:internal/modules/cjs/loader:1197:32)
+    at Module._load (node:internal/modules/cjs/loader:1013:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:128:12)
+    at node:internal/main/run_main_module:28:49
+2025-07-09 15:33:03 ERROR: MongooseServerSelectionError: connect ECONNREFUSED ::1:27017
+    at Connection.openUri (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/connection.js:825:32)
+    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:414:10
+    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:41:5
+    at new Promise (<anonymous>)
+    at promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:40:10)
+    at Mongoose._promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:1290:10)
+    at Mongoose.connect (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:413:20)
+    at connectDB (/home/vboxuser/Documents/bingo/backend/server.js:54:20)
+    at startServer (/home/vboxuser/Documents/bingo/backend/server.js:70:31)
+    at Object.<anonymous> (/home/vboxuser/Documents/bingo/backend/server.js:141:1)
+    at Module._compile (node:internal/modules/cjs/loader:1356:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1414:10)
+    at Module.load (node:internal/modules/cjs/loader:1197:32)
+    at Module._load (node:internal/modules/cjs/loader:1013:12)
+    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:128:12)
+    at node:internal/main/run_main_module:28:49
+{"level":"error","message":"MongoDB connection error: connect ECONNREFUSED ::1:27017","service":"telegram-lottery","stack":"MongooseServerSelectionError: connect ECONNREFUSED ::1:27017\n    at Connection.openUri (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/connection.js:825:32)\n    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:414:10\n    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:41:5\n    at new Promise (<anonymous>)\n    at promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:40:10)\n    at Mongoose._promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:1290:10)\n    at Mongoose.connect (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:413:20)\n    at connectDB (/home/vboxuser/Documents/bingo/backend/server.js:54:20)\n    at startServer (/home/vboxuser/Documents/bingo/backend/server.js:70:31)\n    at Object.<anonymous> (/home/vboxuser/Documents/bingo/backend/server.js:141:1)\n    at Module._compile (node:internal/modules/cjs/loader:1356:14)\n    at Module._extensions..js (node:internal/modules/cjs/loader:1414:10)\n    at Module.load (node:internal/modules/cjs/loader:1197:32)\n    at Module._load (node:internal/modules/cjs/loader:1013:12)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:128:12)\n    at node:internal/main/run_main_module:28:49","timestamp":"2025-07-09 16:08:20"}
+{"level":"error","message":"MongoDB connection error: connect ECONNREFUSED ::1:27017","service":"telegram-lottery","stack":"MongooseServerSelectionError: connect ECONNREFUSED ::1:27017\n    at Connection.openUri (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/connection.js:825:32)\n    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:414:10\n    at /home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:41:5\n    at new Promise (<anonymous>)\n    at promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/helpers/promiseOrCallback.js:40:10)\n    at Mongoose._promiseOrCallback (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:1290:10)\n    at Mongoose.connect (/home/vboxuser/Documents/bingo/backend/node_modules/mongoose/lib/index.js:413:20)\n    at connectDB (/home/vboxuser/Documents/bingo/backend/server.js:54:20)\n    at startServer (/home/vboxuser/Documents/bingo/backend/server.js:70:31)\n    at Object.<anonymous> (/home/vboxuser/Documents/bingo/backend/server.js:141:1)\n    at Module._compile (node:internal/modules/cjs/loader:1356:14)\n    at Module._extensions..js (node:internal/modules/cjs/loader:1414:10)\n    at Module.load (node:internal/modules/cjs/loader:1197:32)\n    at Module._load (node:internal/modules/cjs/loader:1013:12)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:128:12)\n    at node:internal/main/run_main_module:28:49","timestamp":"2025-07-09 16:21:16"}

@@ -51,7 +51,7 @@ app.use((err, req, res, next) => {
 // Hàm khởi tạo kết nối database
 const connectDB = async () => {
   try {
-    await mongoose.connect(config.mongoURI, {
+    await mongoose.connect(config.MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true
     });
@@ -83,7 +83,7 @@ const startServer = async () => {
     }
     
     // Khởi động server
-    const PORT = config.port || 5000;
+    const PORT = config.PORT || 5000;
     const server = app.listen(PORT, () => {
       logger.info(`Server running in ${config.nodeEnv || 'development'} mode on port ${PORT}`);
     });

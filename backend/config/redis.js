@@ -1,30 +1,18 @@
-const redis = require('redis');
-const { promisify } = require('util');
+const { createClient } = require('redis');
 const config = require('./index');
 const logger = require('../utils/logger');
 
-// Cấu hình Redis
-const redisConfig = {
-  url: config.redisUrl || 'redis://localhost:6379',
-  socket: {
-    reconnectStrategy: (retries) => {
-      if (retries > 10) {
-        logger.error('Redis reconnect failed after 10 attempts');
-        return new Error('Redis reconnect failed after 10 attempts');
-      }
-      return Math.min(retries * 100, 3000); // Tăng dần thời gian reconnect, tối đa 3s
-    },
-    connectTimeout: 10000 // 10 seconds
-  }
-};
+let redisClient = null;
 
-// Tạo Redis client
-let redisClient;
-
-// Khởi tạo và kết nối Redis client
+/**
+ * Khởi tạo Redis client
+ */
 const initRedisClient = async () => {
   try {
-    redisClient = redis.createClient(redisConfig);
+    // Tạo Redis client
+    redisClient = createClient({
+      url: config.REDIS_URL || 'redis://localhost:6379'
+    });
 
     // Xử lý sự kiện kết nối
     redisClient.on('connect', () => {
@@ -36,44 +24,84 @@ const initRedisClient = async () => {
       logger.error(`Redis client error: ${err.message}`);
     });
 
-    // Xử lý sự kiện kết nối lại
-    redisClient.on('reconnecting', () => {
-      logger.info('Redis client reconnecting');
-    });
-
-    // Xử lý sự kiện kết nối lại thành công
-    redisClient.on('ready', () => {
-      logger.info('Redis client ready');
-    });
-
     // Kết nối Redis
     await redisClient.connect();
-
-    // Ping để kiểm tra kết nối
-    const pingResult = await redisClient.ping();
-    logger.info(`Redis ping result: ${pingResult}`);
-
-    return redisClient;
+    
+    return true;
   } catch (error) {
-    logger.error(`Error initializing Redis client: ${error.message}`, { stack: error.stack });
-    // Không throw lỗi để ứng dụng vẫn có thể chạy mà không có Redis
-    return null;
+    logger.error(`Redis connection error: ${error.message}`);
+    redisClient = null;
+    return false;
   }
 };
 
-// Cấu hình cache
-const CACHE_TTL = {
-  SHORT: 60, // 1 phút
-  MEDIUM: 300, // 5 phút
-  LONG: 3600, // 1 giờ
-  VERY_LONG: 86400, // 1 ngày
-  PERMANENT: -1 // Không hết hạn
+/**
+ * Lấy Redis client
+ */
+const getRedisClient = () => {
+  return redisClient;
 };
 
-// Export Redis client và các hàm tiện ích
+/**
+ * Đóng kết nối Redis
+ */
+const closeRedisConnection = async () => {
+  if (redisClient) {
+    await redisClient.quit();
+    logger.info('Redis connection closed');
+  }
+};
+
+// Tạo mock Redis client nếu không thể kết nối
+const createMockRedisClient = () => {
+  const cache = new Map();
+  
+  return {
+    isOpen: false,
+    isMock: true,
+    
+    get: async (key) => {
+      logger.debug(`[Mock Redis] GET ${key}`);
+      return cache.get(key);
+    },
+    
+    set: async (key, value) => {
+      logger.debug(`[Mock Redis] SET ${key}`);
+      cache.set(key, value);
+      return 'OK';
+    },
+    
+    setEx: async (key, ttl, value) => {
+      logger.debug(`[Mock Redis] SETEX ${key} ${ttl}`);
+      cache.set(key, value);
+      setTimeout(() => cache.delete(key), ttl * 1000);
+      return 'OK';
+    },
+    
+    del: async (key) => {
+      logger.debug(`[Mock Redis] DEL ${key}`);
+      return cache.delete(key) ? 1 : 0;
+    },
+    
+    quit: async () => {
+      logger.debug('[Mock Redis] QUIT');
+      cache.clear();
+      return 'OK';
+    }
+  };
+};
+
+// Fallback nếu Redis không khả dụng
+const getFallbackRedisClient = () => {
+  if (!redisClient) {
+    logger.warn('Redis not available, using mock implementation');
+    return createMockRedisClient();
+  }
+  return redisClient;
+};
+
 module.exports = {
   initRedisClient,
-  getRedisClient: () => redisClient,
-  CACHE_TTL,
-  isConnected: () => redisClient && redisClient.isOpen
+  getRedisClient: getFallbackRedisClient,
+  closeRedisConnection
 };
