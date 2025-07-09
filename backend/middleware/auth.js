@@ -4,86 +4,101 @@ const crypto = require('crypto');
 const config = require('../config');
 
 /**
- * Xác thực người dùng Telegram
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next function
+ * Xác thực người dùng qua Telegram
  */
 exports.verifyTelegramAuth = async (req, res, next) => {
   try {
-    const { hash, ...userData } = req.body.telegram || {};
+    // Lấy auth data từ header hoặc body
+    let authData = req.headers['x-telegram-auth'] || req.body.auth || req.query.auth;
     
-    if (!hash) {
-      throw new ApiError(401, 'Không có thông tin xác thực Telegram');
+    if (!authData) {
+      return next(new ApiError('Authentication required', 401));
     }
     
-    // Kiểm tra hash từ Telegram
-    const checkHash = verifyTelegramHash(hash, userData);
-    if (!checkHash) {
-      throw new ApiError(401, 'Thông tin xác thực Telegram không hợp lệ');
+    // Parse auth data nếu là string
+    if (typeof authData === 'string') {
+      try {
+        authData = JSON.parse(authData);
+      } catch (e) {
+        return next(new ApiError('Invalid authentication data format', 401));
+      }
     }
     
-    // Thêm thông tin user vào request
+    // Kiểm tra dữ liệu xác thực
+    if (!authData.id || !authData.hash || !authData.auth_date) {
+      return next(new ApiError('Incomplete authentication data', 401));
+    }
+    
+    // Kiểm tra thời gian xác thực (không quá 1 giờ)
+    const authTimestamp = parseInt(authData.auth_date);
+    const currentTime = Math.floor(Date.now() / 1000);
+    
+    if (currentTime - authTimestamp > 3600) {
+      return next(new ApiError('Authentication expired', 401));
+    }
+    
+    // Xác thực hash
+    const secretKey = crypto
+      .createHash('sha256')
+      .update(config.telegramBotToken)
+      .digest();
+    
+    const dataCheckString = Object.keys(authData)
+      .filter(key => key !== 'hash')
+      .sort()
+      .map(key => `${key}=${authData[key]}`)
+      .join('\n');
+    
+    const hash = crypto
+      .createHmac('sha256', secretKey)
+      .update(dataCheckString)
+      .digest('hex');
+    
+    if (hash !== authData.hash) {
+      return next(new ApiError('Invalid authentication hash', 401));
+    }
+    
+    // Tìm hoặc tạo user
+    let user = await User.findOne({ telegramId: authData.id });
+    
+    if (!user) {
+      // Nếu không tìm thấy user, tạo mới với vai trò mặc định
+      user = await User.create({
+        telegramId: authData.id,
+        username: authData.username || `user${authData.id}`,
+        balance: 1000 // Số dư mặc định
+      });
+    }
+    
+    // Lưu thông tin user vào request
     req.user = {
-      id: userData.id,
-      username: userData.username,
-      first_name: userData.first_name,
-      last_name: userData.last_name
+      _id: user._id,
+      telegramId: user.telegramId,
+      username: user.username,
+      role: user.role,
+      balance: user.balance
     };
     
     next();
   } catch (error) {
-    next(error);
+    next(new ApiError(error.message, 500));
   }
 };
 
 /**
- * Hàm xác thực hash từ Telegram
- * @param {string} hash - Hash từ Telegram 
- * @param {Object} userData - Thông tin người dùng
- * @returns {boolean} - Hash có hợp lệ không
- */
-function verifyTelegramHash(hash, userData) {
-  // Bỏ hash khỏi data để verify
-  const dataCheckArray = Object.keys(userData)
-    .sort()
-    .map(key => `${key}=${userData[key]}`);
-  
-  const dataCheckString = dataCheckArray.join('\n');
-  const secretKey = crypto.createHmac('sha256', 'WebAppData')
-    .update(config.telegramBotToken)
-    .digest();
-  
-  const calculatedHash = crypto.createHmac('sha256', secretKey)
-    .update(dataCheckString)
-    .digest('hex');
-  
-  return calculatedHash === hash;
-}
-
-/**
- * Kiểm tra vai trò người dùng
- * @param {string[]} roles - Các vai trò được phép truy cập
- * @returns {Function} - Middleware function
+ * Giới hạn truy cập theo vai trò
+ * @param  {...String} roles - Các vai trò được phép truy cập
  */
 exports.restrictTo = (...roles) => {
-  return async (req, res, next) => {
-    try {
-      const telegramId = req.user.id;
-      const user = await User.findOne({ telegramId });
-      
-      if (!user) {
-        throw new ApiError(404, 'Không tìm thấy người dùng');
-      }
-      
-      if (!roles.includes(user.role)) {
-        throw new ApiError(403, `Không có quyền truy cập: Yêu cầu một trong các vai trò ${roles.join(', ')}`);
-      }
-      
-      req.userData = user;
-      next();
-    } catch (error) {
-      next(error);
+  return (req, res, next) => {
+    if (!req.user) {
+      return next(new ApiError('Authentication required', 401));
     }
+    
+    if (!roles.includes(req.user.role)) {
+      return next(new ApiError('Unauthorized - Insufficient permissions', 403));
+    }
+    
+    next();
   };
 };

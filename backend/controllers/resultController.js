@@ -135,8 +135,17 @@ exports.getResultByDate = asyncHandler(async (req, res) => {
 
 // Tạo kết quả xổ số mới
 exports.createResult = asyncHandler(async (req, res) => {
+  // Tạo kết quả xổ số
   const result = await Result.create(req.body);
-  res.status(201).json(result);
+  
+  // Kiểm tra kết quả với các cược hiện có
+  const betsSummary = await lotteryService.checkResults(result._id);
+  
+  res.status(201).json({
+    message: 'Đã tạo kết quả xổ số thành công',
+    result,
+    betsSummary
+  });
 });
 
 // Cập nhật kết quả xổ số
