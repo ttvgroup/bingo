@@ -1,0 +1,46 @@
+.highlighted-number {
+  background-color: rgba(255, 215, 0, 0.5); /* Màu vàng gold với độ trong suốt */
+  color: #000;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 2px 4px;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.8); /* Hiệu ứng sáng xung quanh */
+  animation: glow 1.5s ease-in-out infinite alternate;
+  display: inline-block;
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
+  }
+  to {
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.9);
+  }
+}
+
+/* Đảm bảo bảng hiển thị rõ ràng */
+table td {
+  vertical-align: middle;
+}
+
+/* Style cho bảng kết quả */
+.table-result {
+  margin-bottom: 1rem;
+}
+
+.table-result th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .highlighted-number {
+    padding: 1px 3px;
+    font-size: 0.9rem;
+  }
+  
+  table {
+    font-size: 0.9rem;
+  }
+} 

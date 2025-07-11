@@ -1,0 +1,6 @@
+/* frontend/src/components/UserProfile.module.css */
+.userProfile {
+  padding: 20px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+}

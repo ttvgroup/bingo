@@ -1,0 +1,158 @@
+{
+  "date": "07/07/2025",
+  "weekday": "Thứ hai",
+  "region": "Miền Nam",
+  "provinces": [
+    {
+      "name": "TP.HCM",
+      "code": "XSHCM",
+      "info": "7B2",
+      "results": {
+        "eighth": "88",
+        "seventh": "078",
+        "sixth": ["8637", "2173", "3554"],
+        "fifth": "7388",
+        "fourth": ["45642", "58285", "00997", "16819", "18294", "43639", "06858"],
+        "third": ["58379", "51740"],
+        "second": "70209",
+        "first": "82625",
+        "special": "287172"
+      }
+    },
+    {
+      "name": "Đồng Tháp",
+      "code": "XSDT",
+      "info": "T27",
+      "results": {
+        "eighth": "92",
+        "seventh": "300",
+        "sixth": ["5729", "6016", "1237"],
+        "fifth": "1270",
+        "fourth": ["06040", "87118", "33224", "32013", "06403", "55996", "74886"],
+        "third": ["60065", "31448"],
+        "second": "89923",
+        "first": "52413",
+        "special": "521905"
+      }
+    },
+    {
+      "name": "Cà Mau",
+      "code": "XSCM",
+      "info": "23-T0/K1",
+      "results": {
+        "eighth": "22",
+        "seventh": "427",
+        "sixth": ["4682", "8627", "4251"],
+        "fifth": "9976",
+        "fourth": ["73226", "34283", "40648", "73849", "81213", "24963", "58724"],
+        "third": ["06353", "24393"],
+        "second": "38136",
+        "first": "63895",
+        "special": "330304"
+      }
+    }
+  ],
+  "schema": {
+    "prizes": [
+      {
+        "name": "Giải tám",
+        "key": "eighth",
+        "count": 1,
+        "digits": 2,
+        "description": "2 chữ số"
+      },
+      {
+        "name": "Giải bảy",
+        "key": "seventh",
+        "count": 1,
+        "digits": 3,
+        "description": "3 chữ số"
+      },
+      {
+        "name": "Giải sáu",
+        "key": "sixth",
+        "count": 3,
+        "digits": 4,
+        "description": "3 số, mỗi số 4 chữ số"
+      },
+      {
+        "name": "Giải năm",
+        "key": "fifth",
+        "count": 1,
+        "digits": 4,
+        "description": "1 số 4 chữ số"
+      },
+      {
+        "name": "Giải tư",
+        "key": "fourth",
+        "count": 7,
+        "digits": 5,
+        "description": "7 số, mỗi số 5 chữ số"
+      },
+      {
+        "name": "Giải ba",
+        "key": "third",
+        "count": 2,
+        "digits": 5,
+        "description": "2 số, mỗi số 5 chữ số"
+      },
+      {
+        "name": "Giải nhì",
+        "key": "second",
+        "count": 1,
+        "digits": 5,
+        "description": "1 số 5 chữ số"
+      },
+      {
+        "name": "Giải nhất",
+        "key": "first",
+        "count": 1,
+        "digits": 5,
+        "description": "1 số 5 chữ số"
+      },
+      {
+        "name": "Giải Đặc Biệt",
+        "key": "special",
+        "count": 1,
+        "digits": 6,
+        "description": "1 số 6 chữ số"
+      }
+    ],
+    "betTypes": {
+      "2D": {
+        "description": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+        "ratio": 70,
+        "prizes": ["special", "eighth"],
+        "digits": 2
+      },
+      "3D": {
+        "description": "Đánh vào 3 số của giải 7 và 3 số cuối của giải đặc biệt",
+        "ratio": 600,
+        "prizes": ["special", "seventh"],
+        "digits": 3
+      },
+      "4D": {
+        "description": "Đánh vào 4 số cuối của 16 lô",
+        "ratio": 5000,
+        "prizes": ["special", "first", "second", "third", "fourth", "fifth", "sixth"],
+        "digits": 4
+      },
+      "lo": {
+        "description": "Đánh vào 2 số cuối của các giải (18 lô cho 1 đài)",
+        "ratio": 70,
+        "allPrizes": true,
+        "digits": 2
+      },
+      "de": {
+        "description": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+        "ratio": 70,
+        "prizes": ["special", "eighth"],
+        "digits": 2
+      }
+    },
+    "drawTime": {
+      "miền Nam": "16:15"
+    },
+    "cutoffTime": "60 phút trước giờ quay thưởng"
+  }
+}

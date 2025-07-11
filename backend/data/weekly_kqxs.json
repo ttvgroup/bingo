@@ -1,0 +1,247 @@
+{
+  "days": [
+    {
+      "weekday": "Thứ hai",
+      "provinces": [
+        {
+          "name": "TP.HCM",
+          "code": "XSHCM",
+          "info": "7B2"
+        },
+        {
+          "name": "Đồng Tháp",
+          "code": "XSDT",
+          "info": "T27"
+        },
+        {
+          "name": "Cà Mau",
+          "code": "XSCM",
+          "info": "23-T0/K1"
+        }
+      ]
+    },
+    {
+      "weekday": "Thứ ba",
+      "provinces": [
+        {
+          "name": "Bến Tre",
+          "code": "XSBT",
+          "info": ""
+        },
+        {
+          "name": "Vũng Tàu",
+          "code": "XSVT",
+          "info": ""
+        },
+        {
+          "name": "Bạc Liêu",
+          "code": "XSBL",
+          "info": ""
+        }
+      ]
+    },
+    {
+      "weekday": "Thứ tư",
+      "provinces": [
+        {
+          "name": "Đồng Nai",
+          "code": "XSDN",
+          "info": ""
+        },
+        {
+          "name": "Cần Thơ",
+          "code": "XSCT",
+          "info": ""
+        },
+        {
+          "name": "Sóc Trăng",
+          "code": "XSST",
+          "info": ""
+        }
+      ]
+    },
+    {
+      "weekday": "Thứ năm",
+      "provinces": [
+        {
+          "name": "Tây Ninh",
+          "code": "XSTN",
+          "info": ""
+        },
+        {
+          "name": "An Giang",
+          "code": "XSAG",
+          "info": ""
+        },
+        {
+          "name": "Bình Thuận",
+          "code": "XSBTH",
+          "info": ""
+        }
+      ]
+    },
+    {
+      "weekday": "Thứ sáu",
+      "provinces": [
+        {
+          "name": "Vĩnh Long",
+          "code": "XSVL",
+          "info": ""
+        },
+        {
+          "name": "Bình Dương",
+          "code": "XSBD",
+          "info": ""
+        },
+        {
+          "name": "Trà Vinh",
+          "code": "XSTV",
+          "info": ""
+        }
+      ]
+    },
+    {
+      "weekday": "Thứ bảy",
+      "provinces": [
+        {
+          "name": "TP.HCM",
+          "code": "XSHCM",
+          "info": ""
+        },
+        {
+          "name": "Long An",
+          "code": "XSLA",
+          "info": ""
+        },
+        {
+          "name": "Bình Phước",
+          "code": "XSBP",
+          "info": ""
+        }
+      ]
+    },
+    {
+      "weekday": "Chủ nhật",
+      "provinces": [
+        {
+          "name": "Tiền Giang",
+          "code": "XSTG",
+          "info": ""
+        },
+        {
+          "name": "Kiên Giang",
+          "code": "XSKG",
+          "info": ""
+        },
+        {
+          "name": "Đà Lạt",
+          "code": "XSDL",
+          "info": ""
+        }
+      ]
+    }
+  ],
+  "schema": {
+    "prizes": [
+      {
+        "name": "Giải tám",
+        "key": "eighth",
+        "count": 1,
+        "digits": 2,
+        "description": "2 chữ số"
+      },
+      {
+        "name": "Giải bảy",
+        "key": "seventh",
+        "count": 1,
+        "digits": 3,
+        "description": "3 chữ số"
+      },
+      {
+        "name": "Giải sáu",
+        "key": "sixth",
+        "count": 3,
+        "digits": 4,
+        "description": "3 số, mỗi số 4 chữ số"
+      },
+      {
+        "name": "Giải năm",
+        "key": "fifth",
+        "count": 1,
+        "digits": 4,
+        "description": "1 số 4 chữ số"
+      },
+      {
+        "name": "Giải tư",
+        "key": "fourth",
+        "count": 7,
+        "digits": 5,
+        "description": "7 số, mỗi số 5 chữ số"
+      },
+      {
+        "name": "Giải ba",
+        "key": "third",
+        "count": 2,
+        "digits": 5,
+        "description": "2 số, mỗi số 5 chữ số"
+      },
+      {
+        "name": "Giải nhì",
+        "key": "second",
+        "count": 1,
+        "digits": 5,
+        "description": "1 số 5 chữ số"
+      },
+      {
+        "name": "Giải nhất",
+        "key": "first",
+        "count": 1,
+        "digits": 5,
+        "description": "1 số 5 chữ số"
+      },
+      {
+        "name": "Giải Đặc Biệt",
+        "key": "special",
+        "count": 1,
+        "digits": 6,
+        "description": "1 số 6 chữ số"
+      }
+    ],
+    "betTypes": {
+      "2D": {
+        "description": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+        "ratio": 70,
+        "prizes": ["special", "eighth"],
+        "digits": 2
+      },
+      "3D": {
+        "description": "Đánh vào 3 số của giải 7 và 3 số cuối của giải đặc biệt",
+        "ratio": 600,
+        "prizes": ["special", "seventh"],
+        "digits": 3
+      },
+      "4D": {
+        "description": "Đánh vào 4 số cuối của 16 lô",
+        "ratio": 5000,
+        "prizes": ["special", "first", "second", "third", "fourth", "fifth", "sixth"],
+        "digits": 4
+      },
+      "lo": {
+        "description": "Đánh vào 2 số cuối của các giải (18 lô cho 1 đài)",
+        "ratio": 70,
+        "allPrizes": true,
+        "digits": 2
+      },
+      "de": {
+        "description": "Đánh vào 2 số cuối của giải đặc biệt và 2 số của giải 8",
+        "ratio": 70,
+        "prizes": ["special", "eighth"],
+        "digits": 2
+      }
+    },
+    "drawTime": {
+      "miền Nam": "16:15"
+    },
+    "cutoffTime": "60 phút trước giờ quay thưởng"
+  }
+} 
