@@ -234,3 +234,138 @@ exports.getSystemStats = asyncHandler(async (req, res, next) => {
     }
   });
 });
+
+/**
+ * Lấy thống kê số tiền đặt cược theo từng số/loại cược
+ * @route GET /api/admin/stats/bets-by-number
+ * @access Admin
+ */
+exports.getBetStatsByNumber = asyncHandler(async (req, res, next) => {
+  const { date } = req.query;
+  const configService = require('../services/configService');
+  
+  // Lấy thống kê
+  const stats = await configService.getBetStatsByNumber(date);
+  
+  res.status(200).json({
+    success: true,
+    date: date || new Date().toISOString().split('T')[0],
+    count: stats.length,
+    data: stats
+  });
+});
+
+/**
+ * Lấy thống kê số tiền đặt cược theo từng số/loại cược (có phân trang)
+ * @route GET /api/admin/stats/bets-by-number/paginated
+ * @access Admin
+ */
+exports.getBetStatsByNumberPaginated = asyncHandler(async (req, res, next) => {
+  const { 
+    date, 
+    page = 1, 
+    limit = 10, 
+    sortBy = 'percentUsed', 
+    sortOrder = 'desc',
+    betType,
+    numbers
+  } = req.query;
+  
+  const configService = require('../services/configService');
+  
+  // Lấy thống kê có phân trang
+  const stats = await configService.getBetStatsByNumberPaginated(
+    date,
+    parseInt(page),
+    parseInt(limit),
+    sortBy,
+    sortOrder,
+    betType,
+    numbers
+  );
+  
+  res.status(200).json({
+    success: true,
+    date: date || new Date().toISOString().split('T')[0],
+    ...stats
+  });
+});
+
+/**
+ * Lấy danh sách số/loại cược đã đạt ngưỡng thông báo
+ * @route GET /api/admin/stats/quota-alerts
+ * @access Admin
+ */
+exports.getQuotaAlerts = asyncHandler(async (req, res, next) => {
+  const configService = require('../services/configService');
+  
+  // Lấy thống kê số tiền đặt cược
+  const stats = await configService.getBetStatsByNumber();
+  
+  // Lấy ngưỡng thông báo
+  const threshold = await configService.getQuotaNotificationThreshold();
+  
+  // Lọc các số đã đạt ngưỡng thông báo
+  const alerts = stats.filter(stat => parseFloat(stat.percentUsed) >= threshold);
+  
+  res.status(200).json({
+    success: true,
+    threshold,
+    count: alerts.length,
+    data: alerts
+  });
+});
+
+/**
+ * Kiểm tra và gửi thông báo khi quota gần đạt ngưỡng
+ * @route POST /api/admin/stats/send-quota-alerts
+ * @access Admin
+ */
+exports.sendQuotaAlerts = asyncHandler(async (req, res, next) => {
+  const configService = require('../services/configService');
+  const telegramService = require('../services/telegramService');
+  
+  // Lấy thống kê số tiền đặt cược
+  const stats = await configService.getBetStatsByNumber();
+  
+  // Lấy ngưỡng thông báo
+  const threshold = await configService.getQuotaNotificationThreshold();
+  
+  // Lọc các số đã đạt ngưỡng thông báo
+  const alerts = stats.filter(stat => parseFloat(stat.percentUsed) >= threshold);
+  
+  if (alerts.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: 'Không có số nào đạt ngưỡng thông báo',
+      count: 0
+    });
+  }
+  
+  // Gửi thông báo cho admin qua Telegram
+  const adminUsers = await User.find({ role: 'admin' });
+  
+  for (const admin of adminUsers) {
+    if (admin.telegramId) {
+      // Tạo nội dung thông báo
+      let message = `🚨 *CẢNH BÁO QUOTA* 🚨\n\n`;
+      message += `Các số sau đã đạt ngưỡng ${threshold}% quota:\n\n`;
+      
+      for (const alert of alerts) {
+        message += `- Số *${alert.numbers}* (${alert.betType}): ${alert.percentUsed}% (${alert.totalAmount.toLocaleString('vi-VN')}đ/${alert.quota.toLocaleString('vi-VN')}đ)\n`;
+      }
+      
+      message += `\nVui lòng kiểm tra và điều chỉnh quota nếu cần thiết.`;
+      
+      // Gửi thông báo qua Telegram
+      await telegramService.sendMessageToUser(admin.telegramId, message);
+    }
+  }
+  
+  res.status(200).json({
+    success: true,
+    message: `Đã gửi thông báo cho ${adminUsers.length} admin`,
+    count: alerts.length,
+    data: alerts
+  });
+});

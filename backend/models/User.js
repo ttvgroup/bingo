@@ -64,20 +64,13 @@ const UserSchema = new Schema({
     type: Number,
     default: 0
   },
-  currentTier: {
-    type: String,
-    default: 'Standard'
-  },
-  loyaltyPoints: {
-    type: Number,
-    default: 0
-  },
-  consecutiveBetDays: {
-    type: Number,
-    default: 0
-  },
   lastBetDate: {
     type: Date
+  },
+  // Theo dõi các mốc đặt cược đã đạt được (10tr, 50tr, 100tr)
+  achievedMilestones: {
+    type: [Number],
+    default: []
   },
   dateOfBirth: {
     type: Date

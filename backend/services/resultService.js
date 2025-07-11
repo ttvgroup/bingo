@@ -9,6 +9,7 @@ const telegramService = require('./telegramService');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { getCacheKey } = require('./cacheService');
+const rewardService = require('./rewardService');
 
 /**
  * Tạo kết quả xổ số mới
@@ -362,9 +363,13 @@ const processResultForBets = async (result, adminId, session, isUpdate = false) 
       const isWin = checkWin(bet, province.results);
       
       if (isWin) {
-        // Tính tiền thưởng
-        const payoutRatio = config.payoutRatios[bet.betType] || getDefaultPayoutRatio(bet.betType);
-        const winAmount = bet.amount * payoutRatio;
+        // Tìm user để tính thưởng
+        const user = await User.findById(bet.userId).session(session);
+        if (!user) continue;
+        
+        // Sử dụng rewardService để tính tiền thưởng
+        const rewardResult = await rewardService.calculateReward(bet, user, true);
+        const winAmount = rewardResult.winAmount;
         
         // Cập nhật cược
         bet.status = 'won';
@@ -394,18 +399,16 @@ const processResultForBets = async (result, adminId, session, isUpdate = false) 
         await transaction.save({ session });
         
         // Thêm vào danh sách người thắng
-        const user = await User.findById(bet.userId).session(session);
-        if (user) {
-          winners.push({
-            telegramId: user.telegramId,
-            bet,
-            winAmount,
-            province
-          });
-          
-          // Xóa cache người dùng
-          await redisClient.del(getCacheKey('USER_PROFILE', user._id));
-        }
+        winners.push({
+          telegramId: user.telegramId,
+          bet,
+          winAmount,
+          province,
+          bonuses: rewardResult.bonuses || []
+        });
+        
+        // Xóa cache người dùng
+        await redisClient.del(getCacheKey('USER_PROFILE', user._id));
       } else {
         // Cập nhật cược thua
         bet.status = 'lost';

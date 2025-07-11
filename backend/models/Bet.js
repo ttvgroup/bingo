@@ -91,14 +91,6 @@ const BetSchema = new Schema({
     default: 'pending'
   },
   // Các trường cho hệ thống phần thưởng nâng cao
-  parlayId: {
-    type: Schema.Types.ObjectId,
-    ref: 'Parlay'
-  },
-  isParlayBet: {
-    type: Boolean,
-    default: false
-  },
   dynamicOddsFactor: {
     type: Number,
     default: 1.0
@@ -111,7 +103,7 @@ const BetSchema = new Schema({
     bonuses: [{
       type: {
         type: String,
-        enum: ['tier', 'incentive', 'special', 'jackpot']
+        enum: ['special', 'jackpot']
       },
       name: String,
       percentage: Number,

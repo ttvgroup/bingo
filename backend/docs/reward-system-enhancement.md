@@ -4,6 +4,11 @@
 
 Tài liệu này mô tả cải tiến hệ thống tính thưởng cho người chơi trong hệ thống cược xổ số. Sau khi nghiên cứu và phân tích các hệ thống cược thể thao phổ biến toàn cầu, chúng tôi đề xuất một số phương pháp nâng cao trải nghiệm người dùng và tăng tính cạnh tranh của hệ thống.
 
+**Điều chỉnh quan trọng:**
+- Số tiền đặt cược càng lớn, tỷ lệ thưởng KHÔNG tăng thêm mà sử dụng hệ thống thưởng cũ (mặc định). Tức là, dù cược lớn hay nhỏ, tỷ lệ trả thưởng không thay đổi theo số tiền cược.
+- Số lượng người đặt cược trên cùng một số: Khi nhiều người chơi cùng chọn một số, tỷ lệ thưởng sẽ giảm xuống. Hệ thống sẽ đặt quota (giới hạn) cho mỗi số, khi tổng số tiền đặt cược của các user cho một số đạt đến giới hạn này thì hệ thống sẽ ngừng nhận cược cho số đó và thông báo cho người dùng rằng số tiền nhận cược đã đến giới hạn.
+- Tạo hệ thống nhận cược cho mỗi giải theo quota: Hệ thống sẽ thu nhận và tính toán tổng số tiền cược trên mỗi số, mỗi loại hình cược, đảm bảo không vượt quá quota đã định. Nếu quota đạt giới hạn, hệ thống sẽ từ chối các lệnh cược mới cho số đó và trả về thông báo "Số tiền nhận cược cho số này đã đạt giới hạn".
+
 ## Hệ thống hiện tại
 
 Hiện tại, hệ thống sử dụng cách tính thưởng đơn giản với tỷ lệ cố định cho từng loại cược:
@@ -23,69 +28,56 @@ Hạn chế của hệ thống hiện tại:
 
 ## Đề xuất cải tiến
 
-### 1. Hệ thống tỷ lệ thưởng động (Dynamic Odds)
+### 1. Hệ thống tỷ lệ thưởng động (Dynamic Odds) và Quota cho từng số
 
-Tỷ lệ thưởng sẽ điều chỉnh linh hoạt dựa trên các yếu tố:
-
-- **Số tiền đặt cược**: Cược càng lớn, tỷ lệ thưởng càng hấp dẫn
-- **Số lượng người đặt cược trên cùng số**: Khi nhiều người chơi cùng chọn một số, tỷ lệ thưởng giảm xuống
-- **Thời gian đặt cược**: Đặt cược sớm được hưởng tỷ lệ thưởng tốt hơn
+- **Số tiền đặt cược càng lớn:** Sử dụng hệ thống thưởng cũ (mặc định)
+- **Số lượng người đặt cược trên cùng số:** Khi nhiều người chơi cùng chọn một số, Hệ thống sẽ đặt quota cho mỗi số (hoặc mỗi loại cược), khi tổng số tiền đặt cược cho số đó đạt đến giới hạn thì ngừng nhận cược và thông báo cho người dùng.
+- **Cơ chế thu nhận và tính toán tổng cược:** Hệ thống sẽ thu nhận và tính toán tổng số tiền cược trên mỗi số, mỗi loại hình cược, đảm bảo không vượt quá quota đã định. Nếu quota đạt giới hạn, hệ thống sẽ từ chối các lệnh cược mới cho số đó và trả về thông báo "Số tiền nhận cược cho số này đã đạt giới hạn".
 
 ```javascript
-// Ví dụ code tính tỷ lệ thưởng động
-function calculateDynamicOdds(baseOdds, betAmount, betCount, timeUntilResult) {
-  // Hệ số dựa trên số tiền cược
-  const betAmountFactor = Math.min(1.2, 1 + (betAmount / 10000) * 0.2);
-  
-  // Hệ số dựa trên số người đặt cược
-  const popularityFactor = Math.max(0.8, 1 - (betCount / 100) * 0.2);
-  
-  // Hệ số dựa trên thời gian
-  const timeFactor = Math.min(1.1, 1 + (timeUntilResult / 86400) * 0.1);
-  
-  return baseOdds * betAmountFactor * popularityFactor * timeFactor;
+// Ví dụ pseudo-code kiểm tra quota khi nhận cược
+function placeBet(userId, number, betType, amount) {
+  const quota = getQuotaForNumber(betType, number);
+  const totalBet = getTotalBetForNumber(betType, number);
+  if (totalBet + amount > quota) {
+    throw new Error('Số tiền nhận cược cho số này đã đạt giới hạn. Vui lòng chọn số khác.');
+  }
+  // Tiếp tục xử lý đặt cược...
 }
 ```
 
-### 2. Thưởng theo cấp độ cược (Bet Tier Bonuses)
+### 2. Hệ thống Leaderboard
 
-Phân chia người chơi theo cấp độ dựa trên tổng số tiền đặt cược:
+Hệ thống Leaderboard công khai hiển thị trên giao diện game:
 
-| Cấp độ | Tổng cược tích lũy | Thưởng thêm |
-|--------|-------------------|------------|
-| Bạc    | 1,000,000 đến 5,000,000 | +5% vào tiền thắng |
-| Vàng   | 5,000,000 đến 20,000,000 | +10% vào tiền thắng |
-| Bạch kim | 20,000,000 đến 50,000,000 | +15% vào tiền thắng |
-| Kim cương | Trên 50,000,000 | +20% vào tiền thắng |
+- **Top 10 người cược nhiều nhất:** Hiển thị 10 người có tổng số tiền đặt cược cao nhất
+- **Top 10 người thắng nhiều nhất:** Hiển thị 10 người có tổng số tiền thắng cao nhất
+- **Top 10 người có nhiều coin nhất:** Hiển thị 10 người có số coin cao nhất
+- **Top 10 người có nhiều P nhất:** Hiển thị 10 người có số P cao nhất
+- **Cập nhật real-time:** Leaderboard được cập nhật theo thời gian thực
+- **Không có thưởng trực tiếp:** Leaderboard chỉ để hiển thị và tạo động lực cạnh tranh
 
-### 3. Hệ thống cược kết hợp (Parlay/Combo Bets)
+### 3. Hệ thống điểm thưởng (Loyalty Points) với mốc đặc biệt
 
-Cho phép người chơi kết hợp nhiều cược lại với nhau để nhận tỷ lệ thưởng cao hơn:
+Người chơi tích lũy coin dựa trên hoạt động đặt cược:
 
-- **Double**: Kết hợp 2 cược, nhân hệ số thưởng với 1.1
-- **Triple**: Kết hợp 3 cược, nhân hệ số thưởng với 1.2
-- **Quadruple**: Kết hợp 4 cược, nhân hệ số thưởng với 1.3
+- **Tích lũy cơ bản:** 100,000 đồng đặt cược = 1 Coin
+- **Mốc đặc biệt:** 
+  - Đạt 10 triệu đồng đặt cược: +10 Coin
+  - Đạt 50 triệu đồng đặt cược: +50 Coin  
+  - Đạt 100 triệu đồng đặt cược: +100 Coin
+  - Đạt 1 tỷ đồng đặt cược: +2,000 Coin
+- **Đổi thưởng:** Coin có thể đổi thành:
+  - Tiền thưởng (1 coin = 10,000đ)
+  - P Balance (1 coin = 1,000 P)
 
-```javascript
-// Ví dụ code tính tiền thắng cho cược kết hợp
-function calculateParlay(bets) {
-  let totalOdds = 1;
-  let bonusFactor = 1 + (bets.length - 1) * 0.1;
-  
-  bets.forEach(bet => {
-    totalOdds *= bet.odds;
-  });
-  
-  return totalOdds * bonusFactor;
-}
-```
+### 4. Hệ thống Balance P
 
-### 4. Tiền thưởng khuyến khích (Incentive Bonuses)
-
-- **First-time Bonus**: Thưởng thêm 10% cho lần thắng đầu tiên của người chơi mới
-- **Comeback Bonus**: Thưởng thêm 5% nếu người chơi thắng sau chuỗi thua 5 lần liên tiếp
-- **Big Win Bonus**: Thưởng thêm 3% cho các khoản thắng lớn (trên 10,000,000)
-- **Daily Streak Bonus**: Thưởng thêm 1% mỗi ngày liên tiếp đặt cược, tối đa 7%
+- **Đơn vị tiền tệ:** P (Point)
+- **Balance cơ bản:** Admin có thể tạo tối đa 100,000,000 P mỗi ngày vào balance của mình
+- **Tự động tích lũy:** Hệ thống tự động + coin cho việc tích lũy và đạt mốc đặc biệt
+- **Quản lý:** Admin có thể cấp/trừ P cho user bất kỳ
+- **Lịch sử:** Theo dõi đầy đủ lịch sử giao dịch P
 
 ### 5. Thưởng đặc biệt (Special Rewards)
 
@@ -93,7 +85,7 @@ function calculateParlay(bets) {
 - **Birthday Bonus**: Tăng 20% tiền thưởng cho các cược thắng vào ngày sinh nhật người chơi
 - **Milestone Rewards**: Thưởng đặc biệt khi đạt các cột mốc: lần cược thứ 100, 500, 1000...
 
-### 6. Cược Jackpot tích lũy (Progressive Jackpot)
+### 5. Cược Jackpot tích lũy (Progressive Jackpot)
 
 Mỗi cược sẽ đóng góp một phần nhỏ (0.5%) vào quỹ Jackpot. Người chơi có thể thắng Jackpot khi:
 
@@ -101,42 +93,11 @@ Mỗi cược sẽ đóng góp một phần nhỏ (0.5%) vào quỹ Jackpot. Ng�
 - Chọn đúng số đặc biệt
 - Cộng thêm một điều kiện phụ (như đặt cược trong khung giờ vàng)
 
-### 7. Hệ thống điểm thưởng (Loyalty Points)
-
-Người chơi tích lũy điểm thưởng dựa trên hoạt động đặt cược:
-
-- Mỗi 10,000 đồng đặt cược = 1 điểm thưởng
-- Điểm thưởng có thể đổi thành:
-  - Cược miễn phí
-  - Tăng tỷ lệ thắng cược
-  - Các vật phẩm ảo hoặc thật
-  - Tiền thưởng
-
 ## Các yêu cầu kỹ thuật
 
 ### 1. Thay đổi cấu trúc cơ sở dữ liệu
 
 ```javascript
-// Model BetTier
-const BetTierSchema = new Schema({
-  name: {
-    type: String,
-    required: true
-  },
-  minAmount: {
-    type: Number,
-    required: true
-  },
-  maxAmount: {
-    type: Number,
-    required: true
-  },
-  bonusPercentage: {
-    type: Number,
-    required: true
-  }
-});
-
 // Cập nhật User Model
 const UserSchema = new Schema({
   // Các trường hiện có
@@ -145,17 +106,15 @@ const UserSchema = new Schema({
     type: Number,
     default: 0
   },
-  currentTier: {
-    type: String,
-    default: 'Standard'
-  },
+  // Đã hủy bỏ currentTier vì thay bằng Leaderboard
   loyaltyPoints: {
     type: Number,
     default: 0
   },
-  consecutiveBetDays: {
-    type: Number,
-    default: 0
+  // Theo dõi các mốc đặt cược đã đạt được (10tr, 50tr, 100tr)
+  achievedMilestones: {
+    type: [Number],
+    default: []
   },
   lastBetDate: {
     type: Date
@@ -185,11 +144,6 @@ async function calculateWinAmount(bet, result) {
   const dynamicFactor = await calculateDynamicOddsFactor(bet);
   baseAmount *= dynamicFactor;
   
-  // Áp dụng thưởng theo cấp độ người chơi
-  const user = await User.findById(bet.userId);
-  const tierBonus = await calculateTierBonus(user);
-  baseAmount *= (1 + tierBonus);
-  
   // Áp dụng các loại thưởng đặc biệt
   const specialBonuses = await calculateSpecialBonuses(bet, user);
   baseAmount *= (1 + specialBonuses);
@@ -203,10 +157,28 @@ async function calculateWinAmount(bet, result) {
 
 ```javascript
 // Trong routes/api.js
-router.get('/bet-tiers', authMiddleware, userController.getBetTiers);
-router.get('/loyalty-points', authMiddleware, userController.getLoyaltyPoints);
-router.post('/redeem-points', authMiddleware, userController.redeemLoyaltyPoints);
-router.get('/jackpot', betController.getCurrentJackpot);
+router.get('/rewards/loyalty-points', authMiddleware, userController.getLoyaltyPoints);
+router.post('/rewards/redeem-points', authMiddleware, userController.redeemLoyaltyPoints);
+router.get('/rewards/leaderboard', rewardController.getLeaderboardInfo);
+router.get('/rewards/leaderboard/betting', rewardController.getTopBettingLeaderboard);
+router.get('/rewards/leaderboard/winning', rewardController.getTopWinningLeaderboard);
+router.get('/rewards/jackpot', betController.getCurrentJackpot);
+
+// Coin và Balance APIs
+router.get('/coins/balance', authMiddleware, coinController.getUserCoinBalance);
+router.get('/coins/p-balance', authMiddleware, coinController.getUserPBalance);
+router.get('/coins/history', authMiddleware, coinController.getUserCoinHistory);
+router.get('/coins/p-history', authMiddleware, coinController.getUserPHistory);
+router.get('/coins/top-holders', coinController.getTopCoinHolders);
+router.get('/coins/top-p-holders', coinController.getTopPHolders);
+
+// Admin Coin và Balance APIs
+router.post('/admin/coins/grant', authMiddleware, adminAuth, coinController.adminGrantCoins);
+router.post('/admin/coins/deduct', authMiddleware, adminAuth, coinController.adminDeductCoins);
+router.post('/admin/p/grant', authMiddleware, adminAuth, coinController.adminGrantP);
+router.post('/admin/p/deduct', authMiddleware, adminAuth, coinController.adminDeductP);
+router.get('/admin/coins/stats', authMiddleware, adminAuth, coinController.getSystemStats);
+router.post('/admin/coins/initialize-daily-bonus', authMiddleware, adminAuth, coinController.initializeDailyBonus);
 ```
 
 ## Kế hoạch triển khai
@@ -236,9 +208,176 @@ router.get('/jackpot', betController.getCurrentJackpot);
 ## Kết luận
 
 Các cải tiến này sẽ giúp:
-- Tăng sự hấp dẫn của hệ thống đối với người chơi
-- Khuyến khích người chơi đặt cược nhiều hơn và thường xuyên hơn
+- Tăng sự hấp dẫn của hệ thống đối với người chơi thông qua hệ thống leaderboard công khai
+- Khuyến khích người chơi đặt cược nhiều hơn để tích lũy coin và đạt các mốc thưởng đặc biệt
+- Tạo ra hệ thống kinh tế trong game với coin và P balance
+- Tăng tính cạnh tranh thông qua việc hiển thị xếp hạng người chơi
 - Tạo ra lợi thế cạnh tranh so với các nền tảng cược khác
 - Tăng doanh thu và lợi nhuận cho hệ thống
 
-Với việc áp dụng các phương pháp tính thưởng hiện đại từ các nền tảng cược thể thao toàn cầu, hệ thống của chúng ta sẽ trở nên hấp dẫn hơn và có khả năng cạnh tranh cao hơn trên thị trường. 
+Với việc áp dụng hệ thống quota, leaderboard công khai, và hệ thống coin/P balance, hệ thống của chúng ta sẽ trở nên hấp dẫn hơn và có khả năng cạnh tranh cao hơn trên thị trường. 
+
+## Lưu ý về các tính năng đã loại bỏ
+
+Các tính năng thưởng khuyến khích (Incentive Bonuses) sau đây đã được loại bỏ:
+
+- **First-time Bonus**: Thưởng thêm 10% cho lần thắng đầu tiên của người chơi mới
+- **Comeback Bonus**: Thưởng thêm 5% nếu người chơi thắng sau chuỗi thua 5 lần liên tiếp
+- **Big Win Bonus**: Thưởng thêm 3% cho các khoản thắng lớn (trên 10,000,000)
+- **Daily Streak Bonus**: Thưởng thêm 1% mỗi ngày liên tiếp đặt cược, tối đa 7%
+
+Các tính năng đổi thưởng sau đây cũng đã được loại bỏ:
+
+- **Cược miễn phí**: Đổi 1 coin lấy 50,000đ cược miễn phí
+- **Tăng tỷ lệ thắng cược**: Đổi 1 coin lấy 5% tăng tỷ lệ thắng
+
+Các tính năng và mô hình khác đã loại bỏ:
+
+- **Hệ thống Tier Bonus**: Đã loại bỏ hoàn toàn mô hình `BetTier` và các hàm liên quan như `getBetTiers()`. Thay thế bằng hệ thống Leaderboard công khai.
+- **Parlay/Combo Bonus**: Đã loại bỏ tính năng thưởng cho cược kết hợp (do đã có xiên 2-5).
+
+Các tính năng này đã được loại bỏ để đơn giản hóa hệ thống tính thưởng và tập trung vào các tính năng quan trọng hơn như hệ thống quota, leaderboard công khai, và hệ thống coin/P balance.
+
+---
+
+## Hướng dẫn tìm đến các file thực hiện cơ chế thưởng
+
+Để tham khảo hoặc chỉnh sửa logic tính thưởng, bonus, loyalty, leaderboard, hãy xem các file sau trong thư mục backend:
+
+- **Cơ chế tính thưởng tổng quát, thưởng động, thưởng đặc biệt, loyalty:**
+  - `services/rewardService.js`: Toàn bộ logic tính thưởng nâng cao, dynamic odds, special bonus, jackpot, loyalty points, leaderboard.
+  - `models/User.js`: Định nghĩa các trường liên quan đến thưởng, loyalty, achievedMilestones cho user.
+
+- **Cơ chế tính thưởng khi xử lý kết quả xổ số:**
+  - `services/lotteryService.js`: Xử lý kiểm tra kết quả, xác định thắng/thua, gọi rewardService để tính thưởng, gửi thông báo Telegram.
+  - `services/resultService.js`: Xử lý cập nhật kết quả, tính thưởng cho các cược liên quan.
+  - `controllers/resultController.js`: API thêm/lấy kết quả, gọi lotteryService để xử lý thưởng.
+
+- **API quản lý trả thưởng, phê duyệt thưởng:**
+  - `controllers/payoutController.js`: Các API lấy danh sách cược thắng, tạo/yêu cầu/phê duyệt trả thưởng.
+
+- **API quản lý thưởng và leaderboard:**
+  - `controllers/rewardController.js`: Các API quản lý loyalty points, leaderboard, jackpot.
+
+- **Các file liên quan khác:**
+  - `config/`: Cấu hình payoutRatios, bonus, các tham số thưởng.
+  - `services/userService.js`: Cập nhật điểm thưởng, lịch sử thưởng cho user.
+
+> Để hiểu rõ từng loại thưởng, hãy bắt đầu từ `services/rewardService.js` và theo dõi các hàm được gọi từ `lotteryService.js` khi xử lý kết quả. 
+
+Hướng dẫn sử dụng:
+1. Cấu hình Redis:
+  PUT /api/admin/config/quota/redis
+Body: {
+  "enabled": true,
+  "host": "localhost",
+  "port": 6379
+}
+
+2. Kiểm tra kết nối Redis:
+GET /api/admin/config/quota/redis/test
+
+3. Cấu hình phát hiện bất thường:
+PUT /api/admin/config/quota/anomaly
+Body: {
+  "maxBetsPerDay": 100,
+  "maxDailyAmount": 50000000
+}
+
+4. Xem Leaderboard (API công khai - không cần xác thực):
+GET /api/rewards/leaderboard
+GET /api/rewards/leaderboard/betting
+GET /api/rewards/leaderboard/winning
+
+5. Xem điểm thưởng:
+GET /api/rewards/loyalty-points
+
+6. Đổi coin thành phần thưởng:
+POST /api/rewards/redeem-points
+Body: { "rewardType": "cash", "coins": 10 }
+Hoặc: { "rewardType": "p_balance", "coins": 10 }
+
+7. Xem Coin Balance:
+GET /api/coins/balance
+GET /api/coins/history
+
+8. Xem P Balance:
+GET /api/coins/p-balance
+GET /api/coins/p-history
+
+9. Xem Top Holders (API công khai - không cần xác thực):
+GET /api/coins/top-holders
+GET /api/coins/top-p-holders
+
+10. Admin quản lý Coin và P:
+POST /api/admin/coins/grant
+Body: { "userId": "user_id", "amount": 100, "reason": "Thưởng đặc biệt" }
+
+POST /api/admin/coins/deduct
+Body: { "userId": "user_id", "amount": 50, "reason": "Phạt vi phạm" }
+
+POST /api/admin/p/grant
+Body: { "userId": "user_id", "amount": 10000, "reason": "Thưởng P" }
+
+POST /api/admin/p/deduct
+Body: { "userId": "user_id", "amount": 5000, "reason": "Trừ P" }
+
+11. Admin thống kê và khởi tạo:
+GET /api/admin/coins/stats
+
+12. Admin tạo P hàng ngày (tối đa 100M P/ngày):
+POST /api/admin/coins/initialize-daily-bonus
+
+## Sơ đồ luồng hệ thống tính thưởng
+
+```mermaid
+flowchart TB
+    subgraph "Hệ Thống Tính Thưởng"
+        A[Người chơi đặt cược] --> B[Tính coin: 100,000đ = 1 coin]
+        B --> C{Đạt mốc đặc biệt?}
+        C -->|Không| D[Cập nhật tổng tiền cược]
+        C -->|Có| E[Thưởng coin theo mốc]
+        E --> F[10tr: +10 coin<br>50tr: +50 coin<br>100tr: +100 coin<br>1 tỷ: +2000 coin]
+        
+        G[Đổi thưởng coin] --> H{Loại thưởng?}
+        H -->|Tiền mặt| I[1 coin = 10,000đ]
+        H -->|P Balance| J[1 coin = 1,000 P]
+    end
+    
+    subgraph "Hệ Thống P Balance"
+        K[Admin tạo P<br>tối đa 100M/ngày] --> L[Admin P Balance]
+        L --> M[Cấp P cho người chơi]
+        M --> N[User P Balance]
+    end
+    
+    subgraph "Leaderboard Công Khai"
+        O[Top 10 người cược nhiều nhất]
+        P[Top 10 người thắng nhiều nhất]
+        Q[Top 10 người có nhiều coin nhất]
+        R[Top 10 người có nhiều P nhất]
+        O & P & Q & R --> S[Hiển thị trên giao diện game]
+    end
+```
+
+## Các API đã cập nhật
+
+### 1. Loại bỏ các API không còn sử dụng
+- Đã loại bỏ API liên quan đến "free_bet" và "odds_boost" trong hệ thống đổi thưởng
+- Chỉ giữ lại các phần thưởng "cash" và "p_balance"
+
+### 2. Cập nhật API khởi tạo daily bonus
+- `POST /api/admin/coins/initialize-daily-bonus`: Đã thay đổi để admin có thể tạo tối đa 100M P mỗi ngày vào balance của mình, thay vì tự động cấp cho system balance
+
+### 3. Cập nhật API leaderboard và top holders
+- Các API leaderboard và top holders đã được cập nhật để truy cập công khai (không cần xác thực)
+- `GET /api/rewards/leaderboard`: Xem thông tin leaderboard tổng hợp
+- `GET /api/rewards/leaderboard/betting`: Xem top 10 người cược nhiều nhất
+- `GET /api/rewards/leaderboard/winning`: Xem top 10 người thắng nhiều nhất
+- `GET /api/coins/top-holders`: Xem top 10 người có nhiều coin nhất
+- `GET /api/coins/top-p-holders`: Xem top 10 người có nhiều P nhất
+
+### 4. Cải thiện hiển thị dữ liệu
+- Đã cải thiện cách hiển thị thông tin người dùng trong leaderboard và top holders
+- Đã thêm xếp hạng (rank) cho mỗi người dùng trong danh sách
+- Đã ẩn thông tin nhạy cảm, chỉ hiển thị thông tin công khai 
+

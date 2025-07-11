@@ -47,6 +47,337 @@ const checkBettingTime = async () => {
 };
 
 /**
+ * Kiểm tra quota cho số và loại cược
+ * @param {String} numbers - Số cược
+ * @param {String} betType - Loại cược
+ * @param {Number} amount - Số tiền cược
+ * @param {String} provinceCode - Mã tỉnh
+ * @param {Date} betDate - Ngày đặt cược
+ * @returns {boolean} - Kết quả kiểm tra
+ */
+const checkBetQuota = async (numbers, betType, amount, provinceCode, betDate) => {
+  try {
+    // Kiểm tra xem hệ thống quota có được bật không
+    const quotaEnabled = await configService.isQuotaEnabled();
+    if (!quotaEnabled) {
+      return true; // Nếu hệ thống quota không được bật, luôn cho phép đặt cược
+    }
+    
+    // Lấy quota cho loại cược này
+    const betTypeQuota = await configService.getQuotaForBetType(betType);
+    
+    // Lấy quota cho số cụ thể này
+    const numberQuota = await configService.getQuotaForNumber(numbers, betType);
+    
+    // Tính tổng số tiền đã đặt cược cho loại cược này trong ngày
+    const startOfDay = new Date(betDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(betDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    // Tổng số tiền đã đặt cược cho loại cược này
+    const totalBetTypeAmount = await Bet.aggregate([
+      {
+        $match: {
+          betType,
+          betDate: { $gte: startOfDay, $lte: endOfDay },
+          provinceCode
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' }
+        }
+      }
+    ]);
+    
+    // Tổng số tiền đã đặt cược cho số cụ thể này
+    const totalNumberAmount = await Bet.aggregate([
+      {
+        $match: {
+          numbers,
+          betType,
+          betDate: { $gte: startOfDay, $lte: endOfDay },
+          provinceCode
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' }
+        }
+      }
+    ]);
+    
+    // Lấy tổng số tiền đã đặt cược hoặc 0 nếu chưa có cược nào
+    const currentBetTypeTotal = totalBetTypeAmount.length > 0 ? totalBetTypeAmount[0].total : 0;
+    const currentNumberTotal = totalNumberAmount.length > 0 ? totalNumberAmount[0].total : 0;
+    
+    // Kiểm tra xem có vượt quá quota không
+    if (currentBetTypeTotal + amount > betTypeQuota) {
+      throw new ApiError(`Số tiền đặt cược cho loại ${betType} đã đạt giới hạn (${betTypeQuota.toLocaleString('vi-VN')}đ). Vui lòng chọn loại cược khác.`, 400);
+    }
+    
+    if (currentNumberTotal + amount > numberQuota) {
+      throw new ApiError(`Số tiền đặt cược cho số "${numbers}" đã đạt giới hạn (${numberQuota.toLocaleString('vi-VN')}đ). Vui lòng chọn số khác.`, 400);
+    }
+    
+    // Kiểm tra ngưỡng thông báo
+    const notificationThreshold = await configService.getQuotaNotificationThreshold();
+    const betTypeThresholdReached = (currentBetTypeTotal + amount) >= (betTypeQuota * notificationThreshold / 100);
+    const numberThresholdReached = (currentNumberTotal + amount) >= (numberQuota * notificationThreshold / 100);
+    
+    // Trả về kết quả kiểm tra và thông tin cảnh báo
+    return {
+      allowed: true,
+      warnings: {
+        betTypeThresholdReached,
+        numberThresholdReached,
+        betTypeRemaining: betTypeQuota - currentBetTypeTotal - amount,
+        numberRemaining: numberQuota - currentNumberTotal - amount,
+        betTypeQuota,
+        numberQuota
+      }
+    };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    logger.error('Lỗi khi kiểm tra quota đặt cược:', error);
+    throw new ApiError('Không thể kiểm tra quota đặt cược. Vui lòng thử lại sau.', 500);
+  }
+};
+
+/**
+ * Kiểm tra quota cho số cược
+ * @param {String} numbers - Số cược
+ * @param {String} betType - Loại cược
+ * @param {Number} amount - Số tiền cược
+ * @returns {Promise<Boolean>} - true nếu còn đủ quota, false nếu đã hết quota
+ */
+exports.checkBetQuota = async (numbers, betType, amount) => {
+  const configService = require('./configService');
+  
+  // Kiểm tra xem hệ thống quota có được bật không
+  const quotaEnabled = await configService.isQuotaEnabled();
+  if (!quotaEnabled) {
+    return true; // Nếu không bật quota, luôn cho phép đặt cược
+  }
+  
+  try {
+    // Thử sử dụng Redis nếu có
+    const redis = await configService.getRedisClient();
+    if (redis) {
+      // Sử dụng Redis để kiểm tra quota nhanh hơn
+      const isAllowed = await configService.checkQuotaWithRedis(numbers, betType, amount);
+      if (!isAllowed) {
+        const quota = await configService.getQuotaForNumber(numbers, betType);
+        throw new ApiError(`Số tiền đặt cược cho số "${numbers}" đã đạt giới hạn (${quota.toLocaleString('vi-VN')}đ). Vui lòng chọn số khác.`, 400);
+      }
+      
+      // Cập nhật số tiền đã đặt cược trong Redis
+      await configService.updateBetAmountInRedis(numbers, betType, amount);
+      
+      // Kiểm tra các hành vi bất thường
+      const anomalyCheck = await configService.detectAnomalies(numbers, betType, amount);
+      if (anomalyCheck.isAnomaly) {
+        // Ghi log nhưng vẫn cho phép đặt cược
+        console.warn(`Phát hiện hành vi bất thường: ${numbers}, ${betType}, ${amount}, ${anomalyCheck.reason}`);
+        
+        // Gửi thông báo cho admin nếu cần
+        const telegramService = require('./telegramService');
+        await telegramService.sendAdminAlert(`⚠️ Phát hiện hành vi bất thường: Số ${numbers}, loại ${betType}, số tiền ${amount.toLocaleString('vi-VN')}đ, lý do: ${anomalyCheck.reason}`);
+      }
+      
+      return true;
+    }
+    
+    // Fallback to MongoDB if Redis is not available
+    // Lấy thống kê số tiền đặt cược cho số này
+    const Bet = require('../models/Bet');
+    
+    // Lấy ngày hiện tại (giờ GMT+7)
+    const now = new Date();
+    const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    vietnamTime.setHours(0, 0, 0, 0);
+    
+    const startDate = vietnamTime;
+    const endDate = new Date(vietnamTime);
+    endDate.setHours(23, 59, 59, 999);
+    
+    // Lấy tổng số tiền đã đặt cược cho số này
+    const betStats = await Bet.aggregate([
+      {
+        $match: {
+          numbers,
+          betType,
+          createdAt: { $gte: startDate, $lte: endDate },
+          status: 'pending'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' }
+        }
+      }
+    ]);
+    
+    const totalBetAmount = betStats.length > 0 ? betStats[0].totalAmount : 0;
+    
+    // Lấy quota cho số này
+    const quota = await configService.getQuotaForNumber(numbers, betType);
+    
+    // Kiểm tra xem có vượt quá quota không
+    if ((totalBetAmount + amount) > quota) {
+      throw new ApiError(`Số tiền đặt cược cho số "${numbers}" đã đạt giới hạn (${quota.toLocaleString('vi-VN')}đ). Vui lòng chọn số khác.`, 400);
+    }
+    
+    return true;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    console.error('Lỗi khi kiểm tra quota đặt cược:', error);
+    throw new ApiError('Không thể kiểm tra quota đặt cược. Vui lòng thử lại sau.', 500);
+  }
+};
+
+/**
+ * Kiểm tra và gửi thông báo khi quota gần đạt ngưỡng
+ * @param {String} numbers - Số cược
+ * @param {String} betType - Loại cược
+ * @returns {Promise<void>}
+ */
+exports.checkAndSendQuotaAlert = async (numbers, betType) => {
+  try {
+    const configService = require('./configService');
+    const telegramService = require('./telegramService');
+    
+    // Kiểm tra xem hệ thống quota có được bật không
+    const quotaEnabled = await configService.isQuotaEnabled();
+    if (!quotaEnabled) {
+      return;
+    }
+    
+    // Lấy thống kê số tiền đặt cược cho số này
+    let totalBetAmount = 0;
+    let betCount = 0;
+    
+    // Thử sử dụng Redis nếu có
+    const redis = await configService.getRedisClient();
+    if (redis) {
+      // Tạo key duy nhất cho số và loại cược
+      const key = `quota:${numbers}:${betType}`;
+      
+      // Lấy tổng số tiền đã đặt cược cho số này từ Redis
+      totalBetAmount = parseInt(await redis.getAsync(key) || 0);
+      
+      // Lấy số lượng cược từ cache nếu có
+      const cachedData = await configService.getCachedQuotaData(`bet_count:${numbers}:${betType}`);
+      betCount = cachedData ? cachedData.count : 0;
+      
+      // Nếu không có dữ liệu trong cache, truy vấn từ MongoDB
+      if (betCount === 0) {
+        const Bet = require('../models/Bet');
+        
+        // Lấy ngày hiện tại (giờ GMT+7)
+        const now = new Date();
+        const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+        vietnamTime.setHours(0, 0, 0, 0);
+        
+        const startDate = vietnamTime;
+        const endDate = new Date(vietnamTime);
+        endDate.setHours(23, 59, 59, 999);
+        
+        // Lấy số lượng cược từ MongoDB
+        const betStats = await Bet.aggregate([
+          {
+            $match: {
+              numbers,
+              betType,
+              createdAt: { $gte: startDate, $lte: endDate },
+              status: 'pending'
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 }
+            }
+          }
+        ]);
+        
+        betCount = betStats.length > 0 ? betStats[0].count : 0;
+        
+        // Lưu vào cache
+        await configService.cacheQuotaData(`bet_count:${numbers}:${betType}`, { count: betCount }, 300);
+      }
+    } else {
+      // Fallback to MongoDB
+      const Bet = require('../models/Bet');
+      
+      // Lấy ngày hiện tại (giờ GMT+7)
+      const now = new Date();
+      const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+      vietnamTime.setHours(0, 0, 0, 0);
+      
+      const startDate = vietnamTime;
+      const endDate = new Date(vietnamTime);
+      endDate.setHours(23, 59, 59, 999);
+      
+      // Lấy tổng số tiền đã đặt cược cho số này
+      const betStats = await Bet.aggregate([
+        {
+          $match: {
+            numbers,
+            betType,
+            createdAt: { $gte: startDate, $lte: endDate },
+            status: 'pending'
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalAmount: { $sum: '$amount' },
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+      
+      if (betStats.length > 0) {
+        totalBetAmount = betStats[0].totalAmount;
+        betCount = betStats[0].count;
+      }
+    }
+    
+    // Lấy quota cho số này
+    const quota = await configService.getQuotaForNumber(numbers, betType);
+    
+    // Tính phần trăm đã sử dụng
+    const percentUsed = (totalBetAmount / quota) * 100;
+    
+    // Lấy ngưỡng thông báo
+    const threshold = await configService.getQuotaNotificationThreshold();
+    
+    // Nếu đã vượt ngưỡng thông báo, gửi cảnh báo
+    if (percentUsed >= threshold) {
+      const remainingQuota = quota - totalBetAmount;
+      const message = `⚠️ Cảnh báo quota: Số "${numbers}" (${betType}) đã đạt ${percentUsed.toFixed(1)}% quota.\n` +
+                      `- Đã đặt: ${totalBetAmount.toLocaleString('vi-VN')}đ (${betCount} lần)\n` +
+                      `- Quota: ${quota.toLocaleString('vi-VN')}đ\n` +
+                      `- Còn lại: ${remainingQuota.toLocaleString('vi-VN')}đ`;
+      
+      await telegramService.sendAdminAlert(message);
+    }
+  } catch (error) {
+    console.error('Lỗi khi kiểm tra và gửi thông báo quota:', error);
+  }
+};
+
+/**
  * Tạo hash cho giao dịch
  * @param {String} senderId - ID người gửi
  * @param {String} receiverId - ID người nhận
@@ -73,6 +404,17 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
   // Kiểm tra thời gian đặt cược
   await checkBettingTime();
 
+  // Nếu không cung cấp ngày cược, sử dụng ngày hiện tại theo GMT+7
+  if (!betDate) {
+    betDate = dateHelper.getCurrentVietnamTime();
+  }
+
+  // Kiểm tra quota đặt cược
+  const quotaCheck = await checkBetQuota(numbers, betType, amount, provinceCode, betDate);
+
+  // Kiểm tra và gửi thông báo nếu gần đạt ngưỡng quota
+  await exports.checkAndSendQuotaAlert(numbers, betType);
+
   // Bắt đầu session MongoDB
   const session = await mongoose.startSession();
   session.startTransaction({
@@ -94,11 +436,6 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
     
     // Lấy tài khoản Pool
     const poolAccount = await userService.getPoolAccount();
-    
-    // Nếu không cung cấp ngày cược, sử dụng ngày hiện tại theo GMT+7
-    if (!betDate) {
-      betDate = dateHelper.getCurrentVietnamTime();
-    }
 
     // Tạo cược mới
     const newBet = new Bet({
@@ -213,7 +550,8 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
     
     logger.info(`User ${userId} placed bet: ${betType} ${numbers} amount: ${amount} for date: ${dateHelper.formatDateVN(betDate)}`);
 
-    return {
+    // Trả về kết quả đặt cược và cảnh báo quota nếu có
+    const result = {
       id: newBet._id,
       numbers,
       betType,
@@ -223,6 +561,21 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
       status: newBet.status,
       createdAt: newBet.createdAt
     };
+    
+    // Thêm thông tin cảnh báo quota nếu có
+    if (quotaCheck.warnings) {
+      if (quotaCheck.warnings.betTypeThresholdReached) {
+        result.warnings = result.warnings || {};
+        result.warnings.betType = `Loại cược ${betType} đã đạt ${await configService.getQuotaNotificationThreshold()}% quota (còn lại: ${quotaCheck.warnings.betTypeRemaining.toLocaleString('vi-VN')}đ)`;
+      }
+      
+      if (quotaCheck.warnings.numberThresholdReached) {
+        result.warnings = result.warnings || {};
+        result.warnings.number = `Số "${numbers}" đã đạt ${await configService.getQuotaNotificationThreshold()}% quota (còn lại: ${quotaCheck.warnings.numberRemaining.toLocaleString('vi-VN')}đ)`;
+      }
+    }
+    
+    return result;
   } catch (error) {
     // Rollback transaction nếu có lỗi
     await session.abortTransaction();

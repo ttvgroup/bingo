@@ -9,19 +9,6 @@ const ApiError = require('../utils/error');
  */
 
 /**
- * Lấy thông tin các cấp độ cược và thưởng tương ứng
- * @route GET /api/rewards/bet-tiers
- * @access Public
- */
-exports.getBetTiers = asyncHandler(async (req, res) => {
-  const betTiers = await rewardService.getBetTiers();
-  res.status(200).json({
-    success: true,
-    data: betTiers
-  });
-});
-
-/**
  * Lấy thông tin điểm thưởng trung thành của người dùng
  * @route GET /api/rewards/loyalty-points
  * @access Private
@@ -33,50 +20,65 @@ exports.getLoyaltyPoints = asyncHandler(async (req, res) => {
     throw new ApiError('Không tìm thấy người dùng', 404);
   }
   
+  // Lấy thông tin coin balance
+  const coinService = require('../services/coinService');
+  const coinBalance = await coinService.getUserCoinBalance(req.user.id);
+  
   res.status(200).json({
     success: true,
     data: {
-      points: user.loyaltyPoints || 0,
-      tier: user.currentTier || 'Standard',
       totalBetAmount: user.totalBetAmount || 0,
-      consecutiveBetDays: user.consecutiveBetDays || 0
+      coinBalance: coinBalance.balance,
+      totalCoinsEarned: coinBalance.totalEarned,
+      totalCoinsSpent: coinBalance.totalSpent,
+      achievedMilestones: coinBalance.achievedMilestones,
+      nextMilestones: [10000000, 50000000, 100000000, 1000000000].filter(m => !coinBalance.achievedMilestones?.includes(m)),
+      // Tỷ lệ tích lũy: 100,000đ = 1 Coin
+      earningRate: '100,000đ = 1 Coin',
+      // Các mốc thưởng
+      milestones: [
+        { amount: 10000000, coins: 10, description: '10 triệu đồng' },
+        { amount: 50000000, coins: 50, description: '50 triệu đồng' },
+        { amount: 100000000, coins: 100, description: '100 triệu đồng' },
+        { amount: 1000000000, coins: 2000, description: '1 tỷ đồng' }
+      ]
     }
   });
 });
 
 /**
- * Đổi điểm thưởng lấy phần thưởng
+ * Đổi coin thành phần thưởng
  * @route POST /api/rewards/redeem-points
  * @access Private
  */
 exports.redeemLoyaltyPoints = asyncHandler(async (req, res) => {
-  const { rewardType, points } = req.body;
+  const { rewardType, coins } = req.body;
   
   // Kiểm tra đầu vào
-  if (!rewardType || !points) {
-    throw new ApiError('Thiếu thông tin phần thưởng hoặc số điểm cần đổi', 400);
+  if (!rewardType || !coins) {
+    throw new ApiError('Thiếu thông tin phần thưởng hoặc số coin cần đổi', 400);
   }
   
   // Kiểm tra loại phần thưởng
-  const validRewardTypes = ['free_bet', 'odds_boost', 'cash'];
+  const validRewardTypes = ['cash', 'p_balance'];
   if (!validRewardTypes.includes(rewardType)) {
     throw new ApiError('Loại phần thưởng không hợp lệ', 400);
   }
   
-  // Kiểm tra số điểm
-  if (points <= 0 || !Number.isInteger(points)) {
-    throw new ApiError('Số điểm cần đổi phải là số nguyên dương', 400);
+  // Kiểm tra số coin
+  if (coins <= 0 || !Number.isInteger(coins)) {
+    throw new ApiError('Số coin cần đổi phải là số nguyên dương', 400);
   }
   
-  const result = await rewardService.redeemLoyaltyPoints(req.user.id, rewardType, points);
+  const result = await rewardService.redeemLoyaltyPoints(req.user.id, rewardType, coins);
   
   if (!result.success) {
-    throw new ApiError(result.error || 'Không thể đổi điểm thưởng', 400);
+    throw new ApiError(result.error || 'Không thể đổi coin thưởng', 400);
   }
   
   res.status(200).json({
     success: true,
-    message: 'Đổi điểm thưởng thành công',
+    message: 'Đổi coin thưởng thành công',
     data: result.reward
   });
 });
@@ -107,47 +109,6 @@ exports.getJackpot = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: jackpotInfo
-  });
-});
-
-/**
- * Tạo cược kết hợp (Parlay/Combo)
- * @route POST /api/rewards/parlay
- * @access Private
- */
-exports.createParlay = asyncHandler(async (req, res) => {
-  const { bets } = req.body;
-  
-  if (!bets || !Array.isArray(bets) || bets.length < 2) {
-    throw new ApiError('Cần ít nhất 2 cược để tạo cược kết hợp', 400);
-  }
-  
-  // Xác thực thông tin cược
-  const validBets = [];
-  for (const betData of bets) {
-    // Kiểm tra các trường bắt buộc
-    if (!betData.numbers || !betData.betType || !betData.provinceCode || !betData.amount) {
-      throw new ApiError('Thông tin cược không hợp lệ', 400);
-    }
-    
-    // Tạo đối tượng cược
-    const bet = {
-      userId: req.user.id,
-      numbers: betData.numbers,
-      betType: betData.betType,
-      provinceCode: betData.provinceCode,
-      amount: betData.amount
-    };
-    
-    validBets.push(bet);
-  }
-  
-  // Tính phần thưởng cho cược kết hợp
-  const parlayInfo = await rewardService.calculateParlayReward(validBets);
-  
-  res.status(200).json({
-    success: true,
-    data: parlayInfo
   });
 });
 
@@ -197,5 +158,47 @@ exports.getBetRewardDetails = asyncHandler(async (req, res) => {
       },
       rewardDetails: rewardDetails
     }
+  });
+}); 
+
+/**
+ * Lấy Leaderboard - Top 10 người cược nhiều nhất
+ * @route GET /api/rewards/leaderboard/betting
+ * @access Public
+ */
+exports.getTopBettingLeaderboard = asyncHandler(async (req, res) => {
+  const leaderboard = await rewardService.getTopBettingLeaderboard();
+  
+  res.status(200).json({
+    success: true,
+    data: leaderboard
+  });
+});
+
+/**
+ * Lấy Leaderboard - Top 10 người thắng nhiều nhất
+ * @route GET /api/rewards/leaderboard/winning
+ * @access Public
+ */
+exports.getTopWinningLeaderboard = asyncHandler(async (req, res) => {
+  const leaderboard = await rewardService.getTopWinningLeaderboard();
+  
+  res.status(200).json({
+    success: true,
+    data: leaderboard
+  });
+});
+
+/**
+ * Lấy thông tin Leaderboard tổng hợp
+ * @route GET /api/rewards/leaderboard
+ * @access Public
+ */
+exports.getLeaderboardInfo = asyncHandler(async (req, res) => {
+  const leaderboardInfo = await rewardService.getLeaderboardInfo();
+  
+  res.status(200).json({
+    success: true,
+    data: leaderboardInfo
   });
 }); 

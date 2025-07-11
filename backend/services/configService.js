@@ -51,6 +51,57 @@ exports.initDefaultConfigs = async () => {
         key: SystemConfig.KEYS.MAINTENANCE_MODE,
         value: false,
         description: 'Chế độ bảo trì hệ thống'
+      },
+      // Thêm cấu hình mặc định cho hệ thống quota
+      {
+        key: SystemConfig.KEYS.QUOTA_ENABLED,
+        value: true,
+        description: 'Bật/tắt hệ thống quota cho từng số/loại cược'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_2D,
+        value: 50000000, // 50 triệu VND
+        description: 'Quota tổng cho mỗi loại cược 2D'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_3D,
+        value: 20000000, // 20 triệu VND
+        description: 'Quota tổng cho mỗi loại cược 3D'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_4D,
+        value: 10000000, // 10 triệu VND
+        description: 'Quota tổng cho mỗi loại cược 4D'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_BAO_LO_2D,
+        value: 30000000, // 30 triệu VND
+        description: 'Quota tổng cho mỗi loại cược Bao lô 2D'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_BAO_LO_3D,
+        value: 15000000, // 15 triệu VND
+        description: 'Quota tổng cho mỗi loại cược Bao lô 3D'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_BAO_LO_4D,
+        value: 5000000, // 5 triệu VND
+        description: 'Quota tổng cho mỗi loại cược Bao lô 4D'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_DEFAULT_PER_NUMBER,
+        value: 10000000, // 10 triệu VND
+        description: 'Quota mặc định cho mỗi số nếu không có cấu hình riêng'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_PER_NUMBER,
+        value: {}, // Cấu hình trống ban đầu, sẽ được cập nhật sau
+        description: 'Cấu hình quota riêng cho từng số (key: số, value: quota)'
+      },
+      {
+        key: SystemConfig.KEYS.QUOTA_NOTIFICATION_THRESHOLD,
+        value: 80, // 80%
+        description: 'Ngưỡng % để thông báo sắp đạt quota'
       }
     ];
 
@@ -252,4 +303,645 @@ exports.updateBettingHours = async (startTime, endTime, updatedBy = null) => {
     start: startTime,
     end: endTime
   };
+}; 
+
+/**
+ * Bật/tắt hệ thống quota
+ * @param {Boolean} enabled - Trạng thái bật/tắt
+ * @param {ObjectId} adminId - ID của admin thực hiện
+ * @returns {Promise<Object>} - Cấu hình đã cập nhật
+ */
+exports.toggleQuota = async (enabled, adminId) => {
+  return await SystemConfig.findOneAndUpdate(
+    { key: SystemConfig.KEYS.QUOTA_ENABLED },
+    {
+      value: enabled,
+      updatedBy: adminId,
+      updatedAt: new Date()
+    },
+    { new: true, upsert: true }
+  );
+};
+
+/**
+ * Kiểm tra xem hệ thống quota có được bật không
+ * @returns {Promise<Boolean>} - true nếu bật, false nếu tắt
+ */
+exports.isQuotaEnabled = async () => {
+  return await exports.getConfig(SystemConfig.KEYS.QUOTA_ENABLED, false);
+};
+
+/**
+ * Cập nhật quota cho số cụ thể
+ * @param {String} number - Số cần cập nhật quota
+ * @param {String} betType - Loại cược
+ * @param {Number} quota - Quota mới
+ * @param {ObjectId} adminId - ID của admin thực hiện
+ * @returns {Promise<Object>} - Cấu hình đã cập nhật
+ */
+exports.updateQuotaForNumber = async (number, betType, quota, adminId) => {
+  // Lấy cấu hình hiện tại
+  const quotaPerNumber = await exports.getConfig(SystemConfig.KEYS.QUOTA_PER_NUMBER, {});
+  
+  // Tạo key duy nhất cho số và loại cược
+  const key = `${number}_${betType}`;
+  
+  // Cập nhật hoặc thêm mới quota cho số này
+  quotaPerNumber[key] = quota;
+  
+  // Lưu lại cấu hình
+  return await SystemConfig.findOneAndUpdate(
+    { key: SystemConfig.KEYS.QUOTA_PER_NUMBER },
+    {
+      value: quotaPerNumber,
+      updatedBy: adminId,
+      updatedAt: new Date()
+    },
+    { new: true, upsert: true }
+  );
+};
+
+/**
+ * Lấy quota cho số cụ thể
+ * @param {String} number - Số cần lấy quota
+ * @param {String} betType - Loại cược
+ * @returns {Promise<Number>} - Quota cho số này
+ */
+exports.getQuotaForNumber = async (number, betType) => {
+  // Lấy cấu hình quota riêng cho từng số
+  const quotaPerNumber = await exports.getConfig(SystemConfig.KEYS.QUOTA_PER_NUMBER, {});
+  
+  // Tạo key duy nhất cho số và loại cược
+  const key = `${number}_${betType}`;
+  
+  // Nếu có cấu hình riêng cho số này, trả về giá trị đó
+  if (quotaPerNumber[key] !== undefined) {
+    return quotaPerNumber[key];
+  }
+  
+  // Nếu không, lấy quota mặc định cho loại cược
+  let defaultQuotaKey;
+  switch (betType) {
+    case '2D':
+      defaultQuotaKey = SystemConfig.KEYS.QUOTA_2D;
+      break;
+    case '3D':
+      defaultQuotaKey = SystemConfig.KEYS.QUOTA_3D;
+      break;
+    case '4D':
+      defaultQuotaKey = SystemConfig.KEYS.QUOTA_4D;
+      break;
+    case 'Bao lô 2D':
+      defaultQuotaKey = SystemConfig.KEYS.QUOTA_BAO_LO_2D;
+      break;
+    case 'Bao lô 3D':
+      defaultQuotaKey = SystemConfig.KEYS.QUOTA_BAO_LO_3D;
+      break;
+    case 'Bao lô 4D':
+      defaultQuotaKey = SystemConfig.KEYS.QUOTA_BAO_LO_4D;
+      break;
+    default:
+      return await exports.getConfig(SystemConfig.KEYS.QUOTA_DEFAULT_PER_NUMBER, 10000000);
+  }
+  
+  return await exports.getConfig(defaultQuotaKey, 10000000);
+};
+
+/**
+ * Lấy thống kê số tiền đặt cược theo từng số/loại cược
+ * @param {String} date - Ngày cần thống kê (định dạng YYYY-MM-DD)
+ * @returns {Promise<Object>} - Thống kê số tiền đặt cược
+ */
+exports.getBetStatsByNumber = async (date) => {
+  const Bet = require('../models/Bet');
+  
+  // Tạo đối tượng Date từ chuỗi YYYY-MM-DD
+  let startDate, endDate;
+  
+  if (date) {
+    startDate = new Date(date);
+    startDate.setHours(0, 0, 0, 0);
+    
+    endDate = new Date(date);
+    endDate.setHours(23, 59, 59, 999);
+  } else {
+    // Nếu không có ngày, lấy thống kê của ngày hiện tại
+    startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
+    
+    endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+  }
+  
+  // Lấy thống kê từ database
+  const stats = await Bet.aggregate([
+    {
+      $match: {
+        createdAt: { $gte: startDate, $lte: endDate },
+        status: 'pending' // Chỉ lấy các cược đang chờ
+      }
+    },
+    {
+      $group: {
+        _id: {
+          numbers: '$numbers',
+          betType: '$betType'
+        },
+        totalAmount: { $sum: '$amount' },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        numbers: '$_id.numbers',
+        betType: '$_id.betType',
+        totalAmount: 1,
+        count: 1
+      }
+    },
+    {
+      $sort: { betType: 1, numbers: 1 }
+    }
+  ]);
+  
+  // Lấy quota cho từng số/loại cược
+  const result = [];
+  
+  for (const stat of stats) {
+    const quota = await exports.getQuotaForNumber(stat.numbers, stat.betType);
+    const percentUsed = (stat.totalAmount / quota) * 100;
+    
+    result.push({
+      numbers: stat.numbers,
+      betType: stat.betType,
+      totalAmount: stat.totalAmount,
+      count: stat.count,
+      quota,
+      percentUsed: Math.min(percentUsed, 100).toFixed(2),
+      remaining: Math.max(quota - stat.totalAmount, 0)
+    });
+  }
+  
+  return result;
+};
+
+/**
+ * Lấy thống kê số tiền đặt cược theo từng số/loại cược có phân trang
+ * @param {String} date - Ngày cần thống kê (định dạng YYYY-MM-DD)
+ * @param {Number} page - Trang hiện tại
+ * @param {Number} limit - Số lượng kết quả mỗi trang
+ * @param {String} sortBy - Trường cần sắp xếp
+ * @param {String} sortOrder - Thứ tự sắp xếp (asc/desc)
+ * @param {String} betType - Lọc theo loại cược
+ * @param {String} numbers - Lọc theo số
+ * @returns {Promise<Object>} - Thống kê số tiền đặt cược có phân trang
+ */
+exports.getBetStatsByNumberPaginated = async (date, page = 1, limit = 10, sortBy = 'percentUsed', sortOrder = 'desc', betType = null, numbers = null) => {
+  const Bet = require('../models/Bet');
+  
+  // Tạo đối tượng Date từ chuỗi YYYY-MM-DD
+  let startDate, endDate;
+  
+  if (date) {
+    startDate = new Date(date);
+    startDate.setHours(0, 0, 0, 0);
+    
+    endDate = new Date(date);
+    endDate.setHours(23, 59, 59, 999);
+  } else {
+    // Nếu không có ngày, lấy thống kê của ngày hiện tại
+    startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
+    
+    endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+  }
+  
+  // Xây dựng điều kiện lọc
+  const matchCondition = {
+    createdAt: { $gte: startDate, $lte: endDate },
+    status: 'pending' // Chỉ lấy các cược đang chờ
+  };
+  
+  if (betType) {
+    matchCondition.betType = betType;
+  }
+  
+  if (numbers) {
+    matchCondition.numbers = numbers;
+  }
+  
+  // Lấy thống kê từ database
+  const stats = await Bet.aggregate([
+    {
+      $match: matchCondition
+    },
+    {
+      $group: {
+        _id: {
+          numbers: '$numbers',
+          betType: '$betType'
+        },
+        totalAmount: { $sum: '$amount' },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        numbers: '$_id.numbers',
+        betType: '$_id.betType',
+        totalAmount: 1,
+        count: 1
+      }
+    }
+  ]);
+  
+  // Lấy quota và tính toán các giá trị khác
+  const result = [];
+  
+  for (const stat of stats) {
+    const quota = await exports.getQuotaForNumber(stat.numbers, stat.betType);
+    const percentUsed = (stat.totalAmount / quota) * 100;
+    
+    result.push({
+      numbers: stat.numbers,
+      betType: stat.betType,
+      totalAmount: stat.totalAmount,
+      count: stat.count,
+      quota,
+      percentUsed: Math.min(percentUsed, 100).toFixed(2),
+      remaining: Math.max(quota - stat.totalAmount, 0)
+    });
+  }
+  
+  // Sắp xếp kết quả
+  const sortMultiplier = sortOrder === 'desc' ? -1 : 1;
+  result.sort((a, b) => {
+    if (sortBy === 'percentUsed') {
+      return (parseFloat(a.percentUsed) - parseFloat(b.percentUsed)) * sortMultiplier;
+    } else if (sortBy === 'totalAmount') {
+      return (a.totalAmount - b.totalAmount) * sortMultiplier;
+    } else if (sortBy === 'count') {
+      return (a.count - b.count) * sortMultiplier;
+    } else if (sortBy === 'remaining') {
+      return (a.remaining - b.remaining) * sortMultiplier;
+    } else if (sortBy === 'numbers') {
+      return a.numbers.localeCompare(b.numbers) * sortMultiplier;
+    } else if (sortBy === 'betType') {
+      return a.betType.localeCompare(b.betType) * sortMultiplier;
+    }
+    return 0;
+  });
+  
+  // Phân trang
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  const paginatedResult = result.slice(startIndex, endIndex);
+  
+  return {
+    total: result.length,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    totalPages: Math.ceil(result.length / limit),
+    data: paginatedResult
+  };
+};
+
+/**
+ * Tối ưu hóa và bảo mật hệ thống quota
+ */
+
+/**
+ * Kiểm tra và khởi tạo Redis connection nếu có
+ * @returns {Object|null} - Redis client hoặc null nếu không có Redis
+ */
+let redisClient = null;
+exports.initRedisConnection = async () => {
+  try {
+    const redis = require('redis');
+    const { promisify } = require('util');
+    
+    // Kiểm tra xem có cấu hình Redis không
+    const redisEnabled = await exports.getConfig('redis_enabled', false);
+    const redisHost = await exports.getConfig('redis_host', 'localhost');
+    const redisPort = await exports.getConfig('redis_port', 6379);
+    
+    if (!redisEnabled) {
+      return null;
+    }
+    
+    // Khởi tạo kết nối Redis
+    redisClient = redis.createClient({
+      host: redisHost,
+      port: redisPort,
+      retry_strategy: function(options) {
+        if (options.error && options.error.code === 'ECONNREFUSED') {
+          // Không thể kết nối, quay lại sử dụng MongoDB
+          console.error('Redis connection failed, falling back to MongoDB');
+          return null;
+        }
+        // Thử kết nối lại sau 1s
+        return Math.min(options.attempt * 100, 3000);
+      }
+    });
+    
+    // Promisify Redis commands
+    const getAsync = promisify(redisClient.get).bind(redisClient);
+    const setAsync = promisify(redisClient.set).bind(redisClient);
+    const incrAsync = promisify(redisClient.incr).bind(redisClient);
+    const expireAsync = promisify(redisClient.expire).bind(redisClient);
+    
+    // Kiểm tra kết nối
+    redisClient.on('error', (error) => {
+      console.error('Redis Error:', error);
+      redisClient = null;
+    });
+    
+    redisClient.on('connect', () => {
+      console.log('Connected to Redis');
+    });
+    
+    // Thêm các phương thức promisified vào client
+    redisClient.getAsync = getAsync;
+    redisClient.setAsync = setAsync;
+    redisClient.incrAsync = incrAsync;
+    redisClient.expireAsync = expireAsync;
+    
+    return redisClient;
+  } catch (error) {
+    console.error('Error initializing Redis:', error);
+    return null;
+  }
+};
+
+/**
+ * Lấy Redis client hiện tại hoặc khởi tạo mới
+ * @returns {Object|null} - Redis client hoặc null nếu không có Redis
+ */
+exports.getRedisClient = async () => {
+  if (!redisClient) {
+    return await exports.initRedisConnection();
+  }
+  return redisClient;
+};
+
+/**
+ * Lưu trữ thông tin quota trong Redis để tối ưu hiệu suất
+ * @param {String} key - Key để lưu trữ
+ * @param {Object} data - Dữ liệu cần lưu trữ
+ * @param {Number} ttl - Thời gian hết hạn (giây)
+ * @returns {Boolean} - true nếu thành công, false nếu thất bại
+ */
+exports.cacheQuotaData = async (key, data, ttl = 300) => {
+  try {
+    const redis = await exports.getRedisClient();
+    if (!redis) return false;
+    
+    await redis.setAsync(`quota:${key}`, JSON.stringify(data), 'EX', ttl);
+    return true;
+  } catch (error) {
+    console.error('Error caching quota data:', error);
+    return false;
+  }
+};
+
+/**
+ * Lấy thông tin quota từ Redis cache
+ * @param {String} key - Key để lấy dữ liệu
+ * @returns {Object|null} - Dữ liệu đã lưu hoặc null nếu không tìm thấy
+ */
+exports.getCachedQuotaData = async (key) => {
+  try {
+    const redis = await exports.getRedisClient();
+    if (!redis) return null;
+    
+    const data = await redis.getAsync(`quota:${key}`);
+    return data ? JSON.parse(data) : null;
+  } catch (error) {
+    console.error('Error getting cached quota data:', error);
+    return null;
+  }
+};
+
+/**
+ * Kiểm tra và áp dụng rate limit cho các thao tác quản lý quota
+ * @param {String} userId - ID của người dùng thực hiện thao tác
+ * @param {String} action - Loại thao tác (update, delete, etc)
+ * @returns {Promise<Boolean>} - true nếu cho phép, false nếu bị giới hạn
+ */
+exports.checkAdminRateLimit = async (userId, action) => {
+  try {
+    const redis = await exports.getRedisClient();
+    if (!redis) return true; // Nếu không có Redis, luôn cho phép
+    
+    const key = `admin_rate_limit:${userId}:${action}`;
+    const limit = await exports.getConfig('admin_rate_limit', 10);
+    const window = await exports.getConfig('admin_rate_limit_window', 60);
+    
+    // Tăng bộ đếm và đặt thời gian hết hạn nếu là lần đầu
+    const count = await redis.incrAsync(key);
+    if (count === 1) {
+      await redis.expireAsync(key, window);
+    }
+    
+    return count <= limit;
+  } catch (error) {
+    console.error('Error checking admin rate limit:', error);
+    return true; // Cho phép trong trường hợp lỗi
+  }
+};
+
+/**
+ * Kiểm tra và phát hiện các hành vi bất thường trong việc sử dụng quota
+ * @param {String} userId - ID của người dùng
+ * @param {String} betType - Loại cược
+ * @param {Number} amount - Số tiền cược
+ * @returns {Promise<Object>} - Kết quả kiểm tra
+ */
+exports.detectAnomalies = async (userId, betType, amount) => {
+  try {
+    const Bet = require('../models/Bet');
+    
+    // Lấy ngày hiện tại (giờ GMT+7)
+    const now = new Date();
+    const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    vietnamTime.setHours(0, 0, 0, 0);
+    
+    const startDate = vietnamTime;
+    const endDate = new Date(vietnamTime);
+    endDate.setHours(23, 59, 59, 999);
+    
+    // Lấy thống kê đặt cược của người dùng trong ngày
+    const userBets = await Bet.aggregate([
+      {
+        $match: {
+          userId,
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+          count: { $sum: 1 },
+          avgAmount: { $avg: '$amount' }
+        }
+      }
+    ]);
+    
+    const result = {
+      isAnomaly: false,
+      reason: null
+    };
+    
+    if (userBets.length > 0) {
+      const stats = userBets[0];
+      
+      // Kiểm tra các hành vi bất thường
+      
+      // 1. Đặt cược với số tiền lớn hơn nhiều so với trung bình
+      if (amount > stats.avgAmount * 5 && amount > 1000000) {
+        result.isAnomaly = true;
+        result.reason = 'amount_spike';
+      }
+      
+      // 2. Đặt cược quá nhiều lần trong ngày
+      const maxBetsPerDay = await exports.getConfig('max_bets_per_day', 100);
+      if (stats.count > maxBetsPerDay) {
+        result.isAnomaly = true;
+        result.reason = 'frequency_spike';
+      }
+      
+      // 3. Tổng số tiền đặt cược trong ngày quá cao
+      const maxDailyAmount = await exports.getConfig('max_daily_amount', 50000000);
+      if (stats.totalAmount + amount > maxDailyAmount) {
+        result.isAnomaly = true;
+        result.reason = 'daily_amount_exceeded';
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Error detecting anomalies:', error);
+    return { isAnomaly: false, reason: null };
+  }
+};
+
+/**
+ * Tạo Lua script để kiểm tra quota trong Redis
+ * @returns {String} - Lua script
+ */
+exports.createQuotaCheckLuaScript = () => {
+  return `
+    local key = KEYS[1]
+    local limit = tonumber(ARGV[1])
+    local window = tonumber(ARGV[2])
+    local current_time = tonumber(ARGV[3])
+    
+    -- Lấy thông tin hiện tại
+    local current = redis.call('get', key)
+    if current and tonumber(current) >= limit then
+      return 0
+    end
+    
+    -- Tăng bộ đếm và đặt thời gian hết hạn nếu là lần đầu
+    if current then
+      redis.call('incr', key)
+    else
+      redis.call('set', key, 1, 'EX', window)
+    end
+    
+    return 1
+  `;
+};
+
+/**
+ * Kiểm tra quota sử dụng Redis Lua script (hiệu quả hơn)
+ * @param {String} number - Số cược
+ * @param {String} betType - Loại cược
+ * @param {Number} amount - Số tiền cược
+ * @returns {Promise<Boolean>} - true nếu còn đủ quota, false nếu đã hết quota
+ */
+exports.checkQuotaWithRedis = async (number, betType, amount) => {
+  try {
+    const redis = await exports.getRedisClient();
+    if (!redis) {
+      // Fallback to MongoDB if Redis is not available
+      return await exports.getQuotaForNumber(number, betType) >= amount;
+    }
+    
+    // Lấy quota cho số và loại cược này
+    const quota = await exports.getQuotaForNumber(number, betType);
+    
+    // Tạo key duy nhất cho số và loại cược
+    const key = `quota:${number}:${betType}`;
+    
+    // Lấy ngày hiện tại (giờ GMT+7)
+    const now = new Date();
+    const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    vietnamTime.setHours(0, 0, 0, 0);
+    
+    // Thời gian còn lại trong ngày (giây)
+    const endOfDay = new Date(vietnamTime);
+    endOfDay.setHours(23, 59, 59, 999);
+    const remainingTime = Math.floor((endOfDay - now) / 1000);
+    
+    // Lấy tổng số tiền đã đặt cược cho số này
+    const totalBetAmount = await redis.getAsync(key) || 0;
+    
+    // Kiểm tra xem có vượt quá quota không
+    return (parseInt(totalBetAmount) + amount) <= quota;
+  } catch (error) {
+    console.error('Error checking quota with Redis:', error);
+    // Fallback to MongoDB if Redis check fails
+    return await exports.getQuotaForNumber(number, betType) >= amount;
+  }
+};
+
+/**
+ * Cập nhật số tiền đã đặt cược trong Redis
+ * @param {String} number - Số cược
+ * @param {String} betType - Loại cược
+ * @param {Number} amount - Số tiền cược
+ * @returns {Promise<Boolean>} - true nếu thành công, false nếu thất bại
+ */
+exports.updateBetAmountInRedis = async (number, betType, amount) => {
+  try {
+    const redis = await exports.getRedisClient();
+    if (!redis) return false;
+    
+    // Tạo key duy nhất cho số và loại cược
+    const key = `quota:${number}:${betType}`;
+    
+    // Lấy ngày hiện tại (giờ GMT+7)
+    const now = new Date();
+    const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    vietnamTime.setHours(0, 0, 0, 0);
+    
+    // Thời gian còn lại trong ngày (giây)
+    const endOfDay = new Date(vietnamTime);
+    endOfDay.setHours(23, 59, 59, 999);
+    const remainingTime = Math.floor((endOfDay - now) / 1000);
+    
+    // Lấy tổng số tiền đã đặt cược cho số này
+    const currentAmount = await redis.getAsync(key) || 0;
+    
+    // Cập nhật tổng số tiền
+    await redis.setAsync(key, parseInt(currentAmount) + amount, 'EX', remainingTime);
+    
+    return true;
+  } catch (error) {
+    console.error('Error updating bet amount in Redis:', error);
+    return false;
+  }
+};
+
+/**
+ * Lấy ngưỡng thông báo cho quota
+ * @returns {Promise<Number>} - Ngưỡng thông báo (%)
+ */
+exports.getQuotaNotificationThreshold = async () => {
+  return await exports.getConfig(SystemConfig.KEYS.QUOTA_NOTIFICATION_THRESHOLD, 80);
 }; 

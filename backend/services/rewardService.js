@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Bet = require('../models/Bet');
 const Transaction = require('../models/Transaction');
+const Coin = require('../models/Coin');
+const Balance = require('../models/Balance');
 const config = require('../config');
 const logger = require('../utils/logger');
 
@@ -31,32 +33,6 @@ exports.calculateReward = async (bet, user, isWinner) => {
     // Lưu danh sách thưởng bổ sung để hiển thị cho người dùng
     const bonuses = [];
     
-    // Áp dụng thưởng theo cấp độ người chơi
-    const tierBonus = await calculateTierBonus(user);
-    if (tierBonus > 0) {
-      const tierBonusAmount = winAmount * tierBonus;
-      winAmount += tierBonusAmount;
-      bonuses.push({
-        type: 'tier',
-        name: `Thưởng cấp độ ${user.currentTier}`,
-        percentage: tierBonus * 100,
-        amount: tierBonusAmount
-      });
-    }
-    
-    // Áp dụng thưởng khuyến khích
-    const incentiveBonus = await calculateIncentiveBonus(bet, user);
-    if (incentiveBonus.percentage > 0) {
-      const incentiveBonusAmount = winAmount * incentiveBonus.percentage;
-      winAmount += incentiveBonusAmount;
-      bonuses.push({
-        type: 'incentive',
-        name: incentiveBonus.name,
-        percentage: incentiveBonus.percentage * 100,
-        amount: incentiveBonusAmount
-      });
-    }
-    
     // Áp dụng thưởng đặc biệt
     const specialBonus = await calculateSpecialBonus(bet, user);
     if (specialBonus.percentage > 0) {
@@ -67,17 +43,6 @@ exports.calculateReward = async (bet, user, isWinner) => {
         name: specialBonus.name,
         percentage: specialBonus.percentage * 100,
         amount: specialBonusAmount
-      });
-    }
-    
-    // Kiểm tra jackpot
-    const jackpotResult = await checkJackpot(bet, user);
-    if (jackpotResult.won) {
-      winAmount += jackpotResult.amount;
-      bonuses.push({
-        type: 'jackpot',
-        name: 'Jackpot',
-        amount: jackpotResult.amount
       });
     }
     
@@ -182,90 +147,6 @@ async function calculateDynamicOddsFactor(bet) {
 }
 
 /**
- * Tính thưởng theo cấp độ người chơi
- * @param {Object} user - Thông tin người dùng
- * @returns {Number} - Phần trăm thưởng thêm (0.05 = 5%)
- */
-async function calculateTierBonus(user) {
-  // Các mức thưởng theo cấp độ
-  const tierBonuses = {
-    'Standard': 0,
-    'Bạc': 0.05, // 5%
-    'Vàng': 0.10, // 10%
-    'Bạch kim': 0.15, // 15%
-    'Kim cương': 0.20 // 20%
-  };
-  
-  // Cập nhật cấp độ người chơi nếu cần
-  if (user.totalBetAmount >= 50000000) {
-    user.currentTier = 'Kim cương';
-  } else if (user.totalBetAmount >= 20000000) {
-    user.currentTier = 'Bạch kim';
-  } else if (user.totalBetAmount >= 5000000) {
-    user.currentTier = 'Vàng';
-  } else if (user.totalBetAmount >= 1000000) {
-    user.currentTier = 'Bạc';
-  }
-  
-  // Trả về phần trăm thưởng dựa trên cấp độ
-  return tierBonuses[user.currentTier] || 0;
-}
-
-/**
- * Tính thưởng khuyến khích
- * @param {Object} bet - Thông tin cược
- * @param {Object} user - Thông tin người dùng
- * @returns {Object} - Thông tin thưởng khuyến khích
- */
-async function calculateIncentiveBonus(bet, user) {
-  // Mặc định không có thưởng
-  let bonusPercentage = 0;
-  let bonusName = '';
-  
-  // Kiểm tra lần đầu thắng cược
-  const firstWinCheck = await Bet.findOne({
-    userId: user._id,
-    status: 'won'
-  });
-  
-  if (!firstWinCheck) {
-    // Lần đầu thắng cược
-    bonusPercentage = 0.10; // 10%
-    bonusName = 'Thưởng lần đầu thắng';
-  } else {
-    // Kiểm tra chuỗi thua liên tiếp
-    const recentBets = await Bet.find({
-      userId: user._id
-    })
-    .sort({ createdAt: -1 })
-    .limit(5);
-    
-    if (recentBets.length >= 5 && recentBets.every(b => b.status === 'lost')) {
-      bonusPercentage = 0.05; // 5%
-      bonusName = 'Thưởng quay lại sau chuỗi thua';
-    }
-  }
-  
-  // Thưởng cho khoản thắng lớn
-  if (bet.amount >= 10000000) {
-    bonusPercentage += 0.03; // 3%
-    bonusName = bonusName ? `${bonusName}, Thưởng thắng lớn` : 'Thưởng thắng lớn';
-  }
-  
-  // Thưởng đặt cược liên tục hàng ngày
-  if (user.consecutiveBetDays > 0) {
-    const streakBonus = Math.min(0.07, user.consecutiveBetDays * 0.01); // Tối đa 7%
-    bonusPercentage += streakBonus;
-    bonusName = bonusName ? `${bonusName}, Thưởng đặt cược ${user.consecutiveBetDays} ngày liên tiếp` : `Thưởng đặt cược ${user.consecutiveBetDays} ngày liên tiếp`;
-  }
-  
-  return {
-    percentage: bonusPercentage,
-    name: bonusName
-  };
-}
-
-/**
  * Tính thưởng đặc biệt
  * @param {Object} bet - Thông tin cược
  * @param {Object} user - Thông tin người dùng
@@ -325,103 +206,91 @@ async function getLuckyNumber(date) {
 }
 
 /**
- * Kiểm tra điều kiện trúng jackpot
- * @param {Object} bet - Thông tin cược
- * @param {Object} user - Thông tin người dùng
- * @returns {Object} - Kết quả jackpot
- */
-async function checkJackpot(bet, user) {
-  // Kiểm tra các điều kiện cần để trúng jackpot
-  if (bet.amount < 100000) {
-    return { won: false, amount: 0 };
-  }
-  
-  // Kiểm tra số đặc biệt (giả sử số đặc biệt của jackpot được cấu hình)
-  const specialNumber = await getJackpotSpecialNumber();
-  if (bet.numbers !== specialNumber) {
-    return { won: false, amount: 0 };
-  }
-  
-  // Kiểm tra điều kiện phụ: đặt cược trong khung giờ vàng
-  const betHour = new Date(bet.createdAt).getHours();
-  if (!(betHour >= 12 && betHour < 14)) { // Khung giờ vàng: 12h-14h
-    return { won: false, amount: 0 };
-  }
-  
-  // Đã trúng jackpot, lấy số tiền hiện tại
-  const jackpotAmount = await getJackpotAmount();
-  
-  // Cập nhật jackpot về 0 hoặc một số tiền cố định
-  await resetJackpot();
-  
-  return { won: true, amount: jackpotAmount };
-}
-
-/**
- * Lấy số đặc biệt cho jackpot
- * @returns {String} - Số đặc biệt
- */
-async function getJackpotSpecialNumber() {
-  // Thực tế sẽ lấy từ cấu hình hoặc database
-  return "88"; // Giả sử số đặc biệt là 88
-}
-
-/**
- * Lấy số tiền jackpot hiện tại
- * @returns {Number} - Số tiền jackpot
- */
-async function getJackpotAmount() {
-  // Thực tế sẽ lấy từ database
-  return 5000000; // Giả sử jackpot đang là 5,000,000
-}
-
-/**
- * Reset jackpot sau khi có người trúng
- */
-async function resetJackpot() {
-  // Thực tế sẽ cập nhật vào database
-  // Đặt lại giá trị khởi tạo cho jackpot
-}
-
-/**
  * Cập nhật điểm thưởng trung thành cho người dùng
  * @param {Object} user - Thông tin người dùng
  * @param {Object} bet - Thông tin cược
  */
 async function updateLoyaltyPoints(user, bet) {
-  // Tính điểm thưởng: 1 điểm cho mỗi 10,000 đặt cược
-  const newPoints = Math.floor(bet.amount / 10000);
-  user.loyaltyPoints = (user.loyaltyPoints || 0) + newPoints;
+  const session = await mongoose.startSession();
+  session.startTransaction();
   
-  // Cập nhật tổng số tiền cược
-  user.totalBetAmount = (user.totalBetAmount || 0) + bet.amount;
-  
-  // Cập nhật ngày đặt cược liên tiếp
-  const today = new Date().setHours(0, 0, 0, 0);
-  const lastBetDate = user.lastBetDate ? new Date(user.lastBetDate).setHours(0, 0, 0, 0) : null;
-  
-  if (!lastBetDate) {
-    user.consecutiveBetDays = 1;
-  } else if (today - lastBetDate === 86400000) { // 1 ngày (tính bằng ms)
-    user.consecutiveBetDays = (user.consecutiveBetDays || 0) + 1;
-  } else if (today !== lastBetDate) {
-    user.consecutiveBetDays = 1; // Reset nếu không phải ngày liên tiếp
+  try {
+    // Lấy hoặc tạo coin balance cho user
+    const coinBalance = await Coin.getOrCreateCoinBalance(user._id);
+    
+    // Tính coin từ tiền cược: 100,000đ = 1 Coin
+    const coinsEarned = Math.floor(bet.amount / 100000);
+    
+    if (coinsEarned > 0) {
+      await coinBalance.addCoins(
+        coinsEarned,
+        'earn',
+        `Tích lũy từ cược ${bet.betType} số ${bet.numbers}`,
+        bet._id,
+        'Bet'
+      );
+    }
+    
+    // Cập nhật tổng số tiền cược
+    user.totalBetAmount = (user.totalBetAmount || 0) + bet.amount;
+    
+    // Ghi lại ngày đặt cược gần nhất
+    user.lastBetDate = new Date();
+    
+    // Kiểm tra các mốc đặt cược để thưởng coin đặc biệt
+    const milestones = [10000000, 50000000, 100000000, 1000000000]; // 10m, 50m, 100m, 1B
+    const currentTotal = user.totalBetAmount;
+    
+    for (const milestone of milestones) {
+      if (currentTotal >= milestone && !coinBalance.hasAchievedMilestone(milestone)) {
+        // Thưởng coin đặc biệt cho mốc
+        let bonusCoins = 0;
+        let milestoneText = '';
+        
+        if (milestone === 10000000) {
+          bonusCoins = 10; // 10 coin cho mốc 10m
+          milestoneText = '10 triệu';
+        } else if (milestone === 50000000) {
+          bonusCoins = 50; // 50 coin cho mốc 50m
+          milestoneText = '50 triệu';
+        } else if (milestone === 100000000) {
+          bonusCoins = 100; // 100 coin cho mốc 100m
+          milestoneText = '100 triệu';
+        } else if (milestone === 1000000000) {
+          bonusCoins = 2000; // 2000 coin cho mốc 1B
+          milestoneText = '1 tỷ';
+        }
+        
+        await coinBalance.addMilestone(
+          milestone,
+          bonusCoins,
+          `Thưởng mốc đạt ${milestoneText} đồng đặt cược`
+        );
+        
+        logger.info(`User ${user.telegramId} đạt mốc ${milestoneText} đồng đặt cược, nhận thêm ${bonusCoins} coin`);
+      }
+    }
+    
+    // Lưu các thay đổi
+    await user.save({ session });
+    await session.commitTransaction();
+  } catch (error) {
+    await session.abortTransaction();
+    logger.error(`Error updating loyalty points: ${error.message}`, { stack: error.stack });
+    throw error;
+  } finally {
+    session.endSession();
   }
-  
-  user.lastBetDate = new Date();
-  
-  // Lưu các thay đổi
-  await user.save();
 }
 
 /**
- * Đổi điểm thưởng thành phần thưởng
+ * Đổi coin thành phần thưởng
  * @param {String} userId - ID người dùng
  * @param {String} rewardType - Loại phần thưởng
- * @param {Number} points - Số điểm muốn đổi
+ * @param {Number} coins - Số coin muốn đổi
  * @returns {Object} - Kết quả đổi thưởng
  */
-exports.redeemLoyaltyPoints = async (userId, rewardType, points) => {
+exports.redeemLoyaltyPoints = async (userId, rewardType, coins) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   
@@ -431,37 +300,18 @@ exports.redeemLoyaltyPoints = async (userId, rewardType, points) => {
       throw new Error('Không tìm thấy người dùng');
     }
     
-    if (!user.loyaltyPoints || user.loyaltyPoints < points) {
-      throw new Error('Không đủ điểm thưởng');
+    const coinBalance = await Coin.getOrCreateCoinBalance(userId);
+    if (coinBalance.balance < coins) {
+      throw new Error('Không đủ coin để đổi thưởng');
     }
     
     let reward = {};
     
     // Xử lý từng loại phần thưởng
     switch (rewardType) {
-      case 'free_bet':
-        // Tạo cược miễn phí
-        const betAmount = points * 5000; // 5,000 cho mỗi điểm
-        reward = {
-          type: 'free_bet',
-          amount: betAmount,
-          description: `Cược miễn phí ${betAmount}`
-        };
-        break;
-      
-      case 'odds_boost':
-        // Tăng tỷ lệ thắng cho lần cược tiếp theo
-        const boostPercentage = Math.min(50, points); // Tối đa 50%
-        reward = {
-          type: 'odds_boost',
-          percentage: boostPercentage,
-          description: `Tăng tỷ lệ thắng ${boostPercentage}% cho lần cược tiếp theo`
-        };
-        break;
-      
       case 'cash':
-        // Đổi điểm thành tiền
-        const cashAmount = points * 1000; // 1,000 cho mỗi điểm
+        // Đổi coin thành tiền: 1 coin = 10,000đ
+        const cashAmount = coins * 10000;
         
         // Cập nhật số dư
         user.balance += cashAmount;
@@ -469,10 +319,10 @@ exports.redeemLoyaltyPoints = async (userId, rewardType, points) => {
         // Tạo giao dịch
         const transaction = new Transaction({
           userId: user._id,
-          type: 'loyalty_reward',
+          type: 'coin_reward',
           amount: cashAmount,
           status: 'completed',
-          description: `Đổi ${points} điểm thưởng thành ${cashAmount} tiền`,
+          description: `Đổi ${coins} coin thành ${cashAmount} tiền`,
           createdAt: new Date()
         });
         
@@ -485,13 +335,39 @@ exports.redeemLoyaltyPoints = async (userId, rewardType, points) => {
         };
         break;
       
+      case 'p_balance':
+        // Đổi coin thành P balance: 1 coin = 1,000 P
+        const pAmount = coins * 1000;
+        
+        // Lấy hoặc tạo balance P cho user
+        const userBalance = await Balance.getOrCreateBalance(userId, 'user');
+        await userBalance.receiveP(
+          pAmount,
+          'milestone_reward',
+          `Đổi ${coins} coin thành ${pAmount} P`,
+          null,
+          'Coin'
+        );
+        
+        reward = {
+          type: 'p_balance',
+          amount: pAmount,
+          description: `${pAmount} P balance`
+        };
+        break;
+      
       default:
         throw new Error('Loại phần thưởng không hợp lệ');
     }
     
-    // Trừ điểm thưởng
-    user.loyaltyPoints -= points;
-    await user.save({ session });
+    // Trừ coin
+    await coinBalance.spendCoins(
+      coins,
+      'spend',
+      `Đổi ${coins} coin lấy ${rewardType}`,
+      null,
+      'System'
+    );
     
     await session.commitTransaction();
     return { success: true, reward };
@@ -505,117 +381,116 @@ exports.redeemLoyaltyPoints = async (userId, rewardType, points) => {
 };
 
 /**
- * Lấy thông tin cấp độ cược
- * @returns {Array} - Danh sách các cấp độ cược
+ * Lấy Leaderboard - Top 10 người cược nhiều nhất
+ * @returns {Array} - Danh sách top 10 người cược nhiều nhất
  */
-exports.getBetTiers = async () => {
-  return [
-    {
-      name: 'Standard',
-      minAmount: 0,
-      maxAmount: 999999,
-      bonusPercentage: 0
-    },
-    {
-      name: 'Bạc',
-      minAmount: 1000000,
-      maxAmount: 4999999,
-      bonusPercentage: 5
-    },
-    {
-      name: 'Vàng',
-      minAmount: 5000000,
-      maxAmount: 19999999,
-      bonusPercentage: 10
-    },
-    {
-      name: 'Bạch kim',
-      minAmount: 20000000,
-      maxAmount: 49999999,
-      bonusPercentage: 15
-    },
-    {
-      name: 'Kim cương',
-      minAmount: 50000000,
-      maxAmount: Infinity,
-      bonusPercentage: 20
-    }
-  ];
-};
-
-/**
- * Tính phần thưởng cho cược kết hợp
- * @param {Array} bets - Danh sách các cược
- * @returns {Object} - Thông tin thưởng cho cược kết hợp
- */
-exports.calculateParlayReward = async (bets) => {
+exports.getTopBettingLeaderboard = async () => {
   try {
-    if (!Array.isArray(bets) || bets.length < 2) {
-      throw new Error('Cần ít nhất 2 cược để tạo cược kết hợp');
-    }
+    const topBettors = await User.find({ totalBetAmount: { $gt: 0 } })
+      .select('telegramId username totalBetAmount')
+      .sort({ totalBetAmount: -1 })
+      .limit(10);
     
-    // Tính tổng tỷ lệ cơ bản
-    let totalOdds = 1;
-    let totalAmount = 0;
-    
-    bets.forEach(bet => {
-      // Lấy tỷ lệ cơ bản cho từng loại cược
-      let odds = 0;
-      switch (bet.betType) {
-        case '2D':
-          odds = config.payoutRatios['2D'];
-          break;
-        case '3D':
-          odds = config.payoutRatios['3D'];
-          break;
-        case '4D':
-          odds = config.payoutRatios['4D'];
-          break;
-        case 'Bao lô 2D':
-          odds = config.payoutRatios['Bao lô 2D'];
-          break;
-        case 'Bao lô 3D':
-          odds = config.payoutRatios['Bao lô 3D'];
-          break;
-        case 'Bao lô 4D':
-          odds = config.payoutRatios['Bao lô 4D'];
-          break;
-      }
-      
-      totalOdds *= odds;
-      totalAmount += bet.amount;
-    });
-    
-    // Tính hệ số thưởng thêm cho cược kết hợp
-    const bonusFactor = 1 + (bets.length - 1) * 0.1; // Tăng 10% cho mỗi cược thêm
-    const finalOdds = totalOdds * bonusFactor;
-    
-    return {
-      bets: bets.length,
-      totalAmount: totalAmount,
-      baseOdds: totalOdds,
-      bonusFactor: bonusFactor,
-      finalOdds: finalOdds,
-      potentialWin: Math.floor(totalAmount * finalOdds)
-    };
+    return topBettors.map((user, index) => ({
+      rank: index + 1,
+      userId: user._id,
+      telegramId: user.telegramId,
+      username: user.username || 'Người dùng ẩn danh',
+      totalBetAmount: user.totalBetAmount || 0
+    }));
   } catch (error) {
-    logger.error(`Error calculating parlay reward: ${error.message}`, { stack: error.stack });
-    throw error;
+    logger.error(`Error getting top betting leaderboard: ${error.message}`, { stack: error.stack });
+    return [];
   }
 };
 
 /**
- * Đóng góp vào quỹ Jackpot từ một cược
- * @param {Object} bet - Thông tin cược
+ * Lấy Leaderboard - Top 10 người thắng nhiều nhất
+ * @returns {Array} - Danh sách top 10 người thắng nhiều nhất
  */
-exports.contributeToJackpot = async (bet) => {
+exports.getTopWinningLeaderboard = async () => {
   try {
-    const contributionPercentage = 0.005; // 0.5%
-    const contribution = Math.floor(bet.amount * contributionPercentage);
+    const topWinners = await User.aggregate([
+      {
+        $lookup: {
+          from: 'bets',
+          localField: '_id',
+          foreignField: 'userId',
+          as: 'bets'
+        }
+      },
+      {
+        $addFields: {
+          totalWinAmount: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: '$bets',
+                    cond: { $eq: ['$$this.status', 'won'] }
+                  }
+                },
+                as: 'bet',
+                in: '$$bet.winAmount'
+              }
+            }
+          }
+        }
+      },
+      {
+        $match: { totalWinAmount: { $gt: 0 } }
+      },
+      {
+        $sort: { totalWinAmount: -1 }
+      },
+      {
+        $limit: 10
+      },
+      {
+        $project: {
+          _id: 1,
+          telegramId: 1,
+          username: 1,
+          totalWinAmount: 1
+        }
+      }
+    ]);
     
-    // Thực tế sẽ cập nhật vào database
-    // Tăng số tiền jackpot
+    return topWinners.map((user, index) => ({
+      rank: index + 1,
+      userId: user._id,
+      telegramId: user.telegramId,
+      username: user.username || 'Người dùng ẩn danh',
+      totalWinAmount: user.totalWinAmount || 0
+    }));
   } catch (error) {
-    logger.error(`Error contributing to jackpot: ${error.message}`, { stack: error.stack });
+    logger.error(`Error getting top winning leaderboard: ${error.message}`, { stack: error.stack });
+    return [];
+  }
+};
+
+/**
+ * Lấy thông tin Leaderboard tổng hợp
+ * @returns {Object} - Thông tin Leaderboard
+ */
+exports.getLeaderboardInfo = async () => {
+  try {
+    const [topBettors, topWinners] = await Promise.all([
+      exports.getTopBettingLeaderboard(),
+      exports.getTopWinningLeaderboard()
+    ]);
+    
+    return {
+      topBettors,
+      topWinners,
+      lastUpdated: new Date()
+    };
+  } catch (error) {
+    logger.error(`Error getting leaderboard info: ${error.message}`, { stack: error.stack });
+    return {
+      topBettors: [],
+      topWinners: [],
+      lastUpdated: new Date()
+    };
   }
 }; 

@@ -16,6 +16,7 @@ const twoFactorAuth = require('../middleware/twoFactorAuth');
 const asyncHandler = require('../utils/asyncHandler');
 const payoutController = require('../controllers/payoutController');
 const rewardController = require('../controllers/rewardController');
+const coinController = require('../controllers/coinController');
 
 // Định nghĩa các middleware bảo vệ đường dẫn admin
 const secureAdminRoutes = [adminAuth.verifyAdmin, roleAuth('admin')];
@@ -39,6 +40,20 @@ router.put('/admin/config/:key', strictSecureAdminRoutes, asyncHandler(configCon
 router.get('/admin/config/betting/status', secureAdminRoutes, asyncHandler(configController.getBettingStatus));
 router.put('/admin/config/betting/toggle', strictSecureAdminRoutes, asyncHandler(configController.toggleBetting));
 router.put('/admin/config/betting/hours', strictSecureAdminRoutes, asyncHandler(configController.updateBettingHours));
+
+// === ADMIN QUOTA CONFIG ROUTES ===
+router.get('/admin/config/quota', secureAdminRoutes, asyncHandler(configController.getQuotaConfig));
+router.put('/admin/config/quota/toggle', strictSecureAdminRoutes, asyncHandler(configController.toggleQuota));
+router.put('/admin/config/quota/bet-type', strictSecureAdminRoutes, asyncHandler(configController.updateBetTypeQuota));
+router.put('/admin/config/quota/default', strictSecureAdminRoutes, asyncHandler(configController.updateDefaultNumberQuota));
+router.put('/admin/config/quota/number', strictSecureAdminRoutes, asyncHandler(configController.updateNumberQuota));
+router.delete('/admin/config/quota/number', strictSecureAdminRoutes, asyncHandler(configController.deleteNumberQuota));
+router.put('/admin/config/quota/threshold', strictSecureAdminRoutes, asyncHandler(configController.updateQuotaThreshold));
+
+// === ADMIN REDIS CONFIG ROUTES ===
+router.put('/admin/config/quota/redis', strictSecureAdminRoutes, asyncHandler(configController.configureRedis));
+router.get('/admin/config/quota/redis/test', strictSecureAdminRoutes, asyncHandler(configController.testRedisConnection));
+router.put('/admin/config/quota/anomaly', strictSecureAdminRoutes, asyncHandler(configController.configureAnomalyDetection));
 
 // Admin Points Management Routes
 router.post('/admin/points/create', 
@@ -117,6 +132,10 @@ router.get('/transactions/:id', auth.verifyUser, asyncHandler(transactionControl
 router.get('/stats/user', auth.verifyUser, asyncHandler(statsController.getUserStats));
 router.get('/stats/hot-numbers', asyncHandler(statsController.getHotNumbers));
 router.get('/stats/system', secureAdminRoutes, asyncHandler(statsController.getSystemStats));
+router.get('/admin/stats/bets-by-number', secureAdminRoutes, asyncHandler(statsController.getBetStatsByNumber));
+router.get('/admin/stats/bets-by-number/paginated', secureAdminRoutes, asyncHandler(statsController.getBetStatsByNumberPaginated));
+router.get('/admin/stats/quota-alerts', secureAdminRoutes, asyncHandler(statsController.getQuotaAlerts));
+router.post('/admin/stats/send-quota-alerts', strictSecureAdminRoutes, asyncHandler(statsController.sendQuotaAlerts));
 
 // === ADMIN PAYOUT ROUTES ===
 router.get('/admin/payouts/pending', strictSecureAdminRoutes, asyncHandler(adminController.getPendingPayouts));
@@ -210,11 +229,33 @@ router.post('/admin/payouts/requests/:id/reject',
 );
 
 // Phần thưởng và hệ thống tính thưởng nâng cao
-router.get('/rewards/bet-tiers', asyncHandler(rewardController.getBetTiers));
+// Reward routes
 router.get('/rewards/loyalty-points', auth.verifyUser, asyncHandler(rewardController.getLoyaltyPoints));
 router.post('/rewards/redeem-points', auth.verifyUser, asyncHandler(rewardController.redeemLoyaltyPoints));
 router.get('/rewards/jackpot', asyncHandler(rewardController.getJackpot));
-router.post('/rewards/parlay', auth.verifyUser, asyncHandler(rewardController.createParlay));
 router.get('/rewards/bet/:betId/details', auth.verifyUser, asyncHandler(rewardController.getBetRewardDetails));
+
+// Leaderboard APIs (public)
+router.get('/rewards/leaderboard', rewardController.getLeaderboardInfo);
+router.get('/rewards/leaderboard/betting', rewardController.getTopBettingLeaderboard);
+router.get('/rewards/leaderboard/winning', rewardController.getTopWinningLeaderboard);
+
+// Top holders APIs (public)
+router.get('/coins/top-holders', coinController.getTopCoinHolders);
+router.get('/coins/top-p-holders', coinController.getTopPHolders);
+
+// Coin và Balance routes
+router.get('/coins/balance', auth.verifyUser, asyncHandler(coinController.getUserCoinBalance));
+router.get('/coins/p-balance', auth.verifyUser, asyncHandler(coinController.getUserPBalance));
+router.get('/coins/history', auth.verifyUser, asyncHandler(coinController.getUserCoinHistory));
+router.get('/coins/p-history', auth.verifyUser, asyncHandler(coinController.getUserPHistory));
+
+// Admin Coin và Balance routes
+router.post('/admin/coins/grant', auth.verifyUser, roleAuth.restrictTo('admin'), asyncHandler(coinController.adminGrantCoins));
+router.post('/admin/coins/deduct', auth.verifyUser, roleAuth.restrictTo('admin'), asyncHandler(coinController.adminDeductCoins));
+router.post('/admin/p/grant', auth.verifyUser, roleAuth.restrictTo('admin'), asyncHandler(coinController.adminGrantP));
+router.post('/admin/p/deduct', auth.verifyUser, roleAuth.restrictTo('admin'), asyncHandler(coinController.adminDeductP));
+router.get('/admin/coins/stats', auth.verifyUser, roleAuth.restrictTo('admin'), asyncHandler(coinController.getSystemStats));
+router.post('/admin/coins/initialize-daily-bonus', auth.verifyUser, roleAuth.restrictTo('admin'), asyncHandler(coinController.initializeDailyBonus));
 
 module.exports = router;
