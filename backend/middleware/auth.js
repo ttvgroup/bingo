@@ -67,7 +67,7 @@ exports.verifyTelegramAuth = asyncHandler(async (req, res, next) => {
     user = await User.create({
       telegramId: authData.id,
       username: authData.username || `user${authData.id}`,
-      balance: 1000 // Số dư mặc định
+      balance: 0 // Số dư mặc định là 0
     });
   }
   

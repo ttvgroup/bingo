@@ -1,4 +1,5 @@
 const config = require('../config');
+const dateHelper = require('./dateHelper');
 
 /**
  * Kiểm tra định dạng số
@@ -20,33 +21,21 @@ exports.validateNumber = (number, type) => {
 };
 
 /**
- * Định dạng ngày theo kiểu DD/MM/YYYY
+ * Định dạng ngày theo kiểu DD/MM/YYYY (GMT+7)
  * @param {Date} date - Đối tượng ngày
  * @returns {string} Ngày đã định dạng
  */
 exports.formatDate = (date) => {
-  const d = new Date(date);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  
-  return `${day}/${month}/${year}`;
+  return dateHelper.formatDateVN(date);
 };
 
 /**
- * Định dạng ngày giờ đầy đủ
+ * Định dạng ngày giờ đầy đủ (GMT+7)
  * @param {Date} date - Đối tượng ngày
  * @returns {string} - Ngày giờ đã định dạng
  */
 exports.formatDateTime = (date) => {
-  const d = new Date(date);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  const hour = String(d.getHours()).padStart(2, '0');
-  const minute = String(d.getMinutes()).padStart(2, '0');
-  
-  return `${day}/${month}/${year} ${hour}:${minute}`;
+  return dateHelper.formatDateTimeVN(date);
 };
 
 /**
@@ -56,6 +45,9 @@ exports.formatDateTime = (date) => {
  * @returns {Date} Đối tượng ngày đã chuyển đổi
  */
 exports.convertToTimezone = (date, timezone = config.timeZone) => {
+  if (timezone === 'Asia/Ho_Chi_Minh' || timezone === 'GMT+7') {
+    return dateHelper.convertToVietnamTime(date);
+  }
   return new Date(date.toLocaleString('en-US', { timeZone: timezone }));
 };
 
@@ -64,8 +56,17 @@ exports.convertToTimezone = (date, timezone = config.timeZone) => {
  * @returns {Date} Đối tượng ngày hiện tại theo GMT+7
  */
 exports.getCurrentVietnamTime = () => {
-  const now = new Date();
-  return exports.convertToTimezone(now, config.timeZone);
+  return dateHelper.getCurrentVietnamTime();
+};
+
+/**
+ * So sánh hai ngày (chỉ ngày/tháng/năm, không bao gồm giờ) theo GMT+7
+ * @param {Date} date1 - Ngày thứ nhất
+ * @param {Date} date2 - Ngày thứ hai
+ * @returns {boolean} true nếu hai ngày giống nhau
+ */
+exports.isSameDay = (date1, date2) => {
+  return dateHelper.isSameDay(date1, date2);
 };
 
 /**

@@ -1,190 +1,289 @@
 const AuditLog = require('../models/AuditLog');
-const logger = require('../utils/logger');
+const mongoose = require('mongoose');
 
 /**
- * Service quản lý nhật ký kiểm toán
- * Lưu trữ và truy xuất nhật ký cho các hoạt động quan trọng
- */
-
-/**
- * Tạo một bản ghi nhật ký kiểm toán mới
- * 
- * @param {Object} data - Dữ liệu nhật ký
- * @param {String} data.action - Loại hành động (create, update, delete, verify, reject)
- * @param {String} data.resourceType - Loại tài nguyên (result, bet, transaction, user)
- * @param {ObjectId} data.resourceId - ID của tài nguyên
- * @param {ObjectId} data.userId - ID của người thực hiện hành động
+ * Ghi log kiểm toán chi tiết
+ * @param {Object} data - Dữ liệu log
+ * @param {String} data.userId - ID người dùng thực hiện hành động
+ * @param {String} data.action - Loại hành động
  * @param {String} data.ipAddress - Địa chỉ IP
- * @param {String} data.userAgent - Thông tin trình duyệt/ứng dụng
- * @param {Object} data.details - Thông tin chi tiết (tùy chọn)
- * @returns {Promise<Object>} - Bản ghi nhật ký đã tạo
+ * @param {String} data.deviceInfo - Thông tin thiết bị
+ * @param {String} data.targetId - ID đối tượng liên quan
+ * @param {String} data.targetType - Loại đối tượng
+ * @param {Object} data.details - Chi tiết hành động
+ * @returns {Promise<AuditLog>}
  */
-exports.createAuditLog = async (data) => {
+exports.logAction = async (data) => {
   try {
-    // Kiểm tra các trường bắt buộc
-    if (!data.action || !data.resourceType || !data.resourceId || !data.userId) {
-      throw new Error('Thiếu thông tin bắt buộc cho nhật ký kiểm toán');
-    }
-    
-    // Tạo bản ghi nhật ký
     const auditLog = new AuditLog({
-      action: data.action,
-      resourceType: data.resourceType,
-      resourceId: data.resourceId,
       userId: data.userId,
-      ipAddress: data.ipAddress,
-      userAgent: data.userAgent,
-      details: data.details || {}
+      action: data.action,
+      ipAddress: data.ipAddress || 'unknown',
+      deviceInfo: data.deviceInfo || 'unknown',
+      targetId: data.targetId,
+      targetType: data.targetType,
+      details: data.details
     });
-    
-    // Lưu vào database
-    await auditLog.save();
-    
-    // Ghi log
-    logger.info(`Audit log created: ${data.action} ${data.resourceType} by user ${data.userId}`);
-    
-    return auditLog;
+
+    return await auditLog.save();
   } catch (error) {
-    logger.error(`Error creating audit log: ${error.message}`);
+    console.error('Không thể ghi log kiểm toán:', error);
     // Không throw lỗi để không ảnh hưởng đến luồng chính
     return null;
   }
 };
 
 /**
- * Lấy nhật ký cho một tài nguyên cụ thể
- * 
- * @param {String} resourceType - Loại tài nguyên
- * @param {ObjectId} resourceId - ID của tài nguyên
- * @param {Object} options - Các tùy chọn truy vấn
- * @returns {Promise<Array>} - Danh sách nhật ký
+ * Ghi log giao dịch tài chính
+ * @param {Object} transaction - Thông tin giao dịch
+ * @param {Object} user - Thông tin người dùng
+ * @param {String} ipAddress - Địa chỉ IP
+ * @param {String} deviceInfo - Thông tin thiết bị
+ * @returns {Promise<AuditLog>}
  */
-exports.getResourceAuditLogs = async (resourceType, resourceId, options = {}) => {
+exports.logFinancialTransaction = async (transaction, user, ipAddress, deviceInfo) => {
   try {
-    const query = { resourceType, resourceId };
-    
-    // Tìm kiếm theo loại hành động (nếu có)
-    if (options.action) {
-      query.action = options.action;
+    let action = 'transaction';
+    switch (transaction.type) {
+      case 'transfer':
+        action = 'transfer_funds';
+        break;
+      case 'deposit':
+        action = 'deposit_request';
+        break;
+      case 'withdraw':
+        action = 'withdraw_request';
+        break;
+      case 'bet':
+        action = 'place_bet';
+        break;
+      case 'win':
+        action = 'win_payout';
+        break;
+      case 'point_creation':
+        action = 'create_points';
+        break;
     }
-    
-    // Tìm kiếm theo thời gian (nếu có)
-    if (options.startDate || options.endDate) {
-      query.createdAt = {};
-      
-      if (options.startDate) {
-        query.createdAt.$gte = new Date(options.startDate);
+
+    return await this.logAction({
+      userId: user._id,
+      action,
+      ipAddress,
+      deviceInfo,
+      targetId: transaction._id,
+      targetType: 'Transaction',
+      details: {
+        transactionType: transaction.type,
+        amount: transaction.amount,
+        status: transaction.status,
+        receiverId: transaction.receiverId,
+        description: transaction.description,
+        balanceBefore: transaction.metaData?.senderBalanceBefore,
+        balanceAfter: transaction.metaData?.senderBalanceAfter,
+        timestamp: new Date()
       }
-      
-      if (options.endDate) {
-        query.createdAt.$lte = new Date(options.endDate);
-      }
-    }
-    
-    // Thực hiện truy vấn
-    const logs = await AuditLog.find(query)
-      .sort({ createdAt: -1 })
-      .skip(options.skip || 0)
-      .limit(options.limit || 50)
-      .populate('userId', 'username telegramId role');
-    
-    return logs;
+    });
   } catch (error) {
-    logger.error(`Error retrieving audit logs: ${error.message}`);
-    throw error;
+    console.error('Không thể ghi log giao dịch tài chính:', error);
+    return null;
   }
 };
 
 /**
- * Lấy nhật ký cho một người dùng cụ thể
- * 
- * @param {ObjectId} userId - ID của người dùng
- * @param {Object} options - Các tùy chọn truy vấn
- * @returns {Promise<Array>} - Danh sách nhật ký
+ * Ghi log thay đổi kết quả
+ * @param {Object} result - Thông tin kết quả
+ * @param {Object} user - Thông tin người dùng
+ * @param {String} action - Loại hành động (create, update, delete)
+ * @param {Object} previousState - Trạng thái trước khi thay đổi
+ * @param {Object} newState - Trạng thái sau khi thay đổi
+ * @param {String} ipAddress - Địa chỉ IP
+ * @param {String} deviceInfo - Thông tin thiết bị
+ * @returns {Promise<AuditLog>}
  */
-exports.getUserAuditLogs = async (userId, options = {}) => {
+exports.logResultChange = async (result, user, action, previousState, newState, ipAddress, deviceInfo) => {
   try {
-    const query = { userId };
-    
-    // Tìm kiếm theo loại tài nguyên (nếu có)
-    if (options.resourceType) {
-      query.resourceType = options.resourceType;
-    }
-    
-    // Tìm kiếm theo loại hành động (nếu có)
-    if (options.action) {
-      query.action = options.action;
-    }
-    
-    // Tìm kiếm theo thời gian (nếu có)
-    if (options.startDate || options.endDate) {
-      query.createdAt = {};
-      
-      if (options.startDate) {
-        query.createdAt.$gte = new Date(options.startDate);
+    return await this.logAction({
+      userId: user._id,
+      action: `result_${action}`,
+      ipAddress,
+      deviceInfo,
+      targetId: result._id,
+      targetType: 'Result',
+      details: {
+        date: result.date,
+        region: result.region,
+        provinces: result.provinces.map(p => p.name),
+        previousState,
+        newState,
+        timestamp: new Date()
       }
-      
-      if (options.endDate) {
-        query.createdAt.$lte = new Date(options.endDate);
-      }
-    }
-    
-    // Thực hiện truy vấn
-    const logs = await AuditLog.find(query)
-      .sort({ createdAt: -1 })
-      .skip(options.skip || 0)
-      .limit(options.limit || 50);
-    
-    return logs;
+    });
   } catch (error) {
-    logger.error(`Error retrieving user audit logs: ${error.message}`);
-    throw error;
+    console.error('Không thể ghi log thay đổi kết quả:', error);
+    return null;
   }
 };
 
 /**
- * Lấy tất cả nhật ký với các bộ lọc
- * 
- * @param {Object} filters - Các bộ lọc
- * @param {Object} options - Các tùy chọn phân trang
- * @returns {Promise<Object>} - Danh sách nhật ký và thông tin phân trang
+ * Ghi log hoạt động đăng nhập
+ * @param {Object} user - Thông tin người dùng
+ * @param {Boolean} success - Đăng nhập thành công hay không
+ * @param {String} ipAddress - Địa chỉ IP
+ * @param {String} deviceInfo - Thông tin thiết bị
+ * @param {String} reason - Lý do thất bại (nếu có)
+ * @returns {Promise<AuditLog>}
  */
-exports.getAllAuditLogs = async (filters = {}, options = {}) => {
+exports.logLogin = async (user, success, ipAddress, deviceInfo, reason = null) => {
   try {
+    return await this.logAction({
+      userId: user._id,
+      action: success ? 'login_success' : 'login_failed',
+      ipAddress,
+      deviceInfo,
+      targetId: user._id,
+      targetType: 'User',
+      details: {
+        telegramId: user.telegramId,
+        username: user.username,
+        role: user.role,
+        failureReason: reason,
+        timestamp: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Không thể ghi log đăng nhập:', error);
+    return null;
+  }
+};
+
+/**
+ * Ghi log thay đổi cấu hình hệ thống
+ * @param {Object} user - Thông tin người dùng
+ * @param {String} configType - Loại cấu hình
+ * @param {Object} previousConfig - Cấu hình trước khi thay đổi
+ * @param {Object} newConfig - Cấu hình sau khi thay đổi
+ * @param {String} ipAddress - Địa chỉ IP
+ * @param {String} deviceInfo - Thông tin thiết bị
+ * @returns {Promise<AuditLog>}
+ */
+exports.logConfigChange = async (user, configType, previousConfig, newConfig, ipAddress, deviceInfo) => {
+  try {
+    return await this.logAction({
+      userId: user._id,
+      action: 'config_change',
+      ipAddress,
+      deviceInfo,
+      targetType: 'Config',
+      details: {
+        configType,
+        previousConfig,
+        newConfig,
+        timestamp: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Không thể ghi log thay đổi cấu hình:', error);
+    return null;
+  }
+};
+
+/**
+ * Ghi log kiểm tra tính toàn vẹn số dư
+ * @param {Object} transaction - Thông tin giao dịch
+ * @param {Object} balanceData - Dữ liệu về số dư
+ * @param {String} ipAddress - Địa chỉ IP
+ * @param {String} deviceInfo - Thông tin thiết bị
+ * @returns {Promise<AuditLog>}
+ */
+exports.logBalanceIntegrityCheck = async (transaction, balanceData, ipAddress, deviceInfo) => {
+  try {
+    return await this.logAction({
+      userId: transaction.userId,
+      action: 'balance_integrity_check',
+      ipAddress,
+      deviceInfo,
+      targetId: transaction._id,
+      targetType: 'Transaction',
+      details: {
+        transactionType: transaction.type,
+        amount: transaction.amount,
+        totalBalanceBefore: balanceData.totalBalanceBefore,
+        totalBalanceAfter: balanceData.totalBalanceAfter,
+        isIntegrityMaintained: balanceData.totalBalanceBefore === balanceData.totalBalanceAfter,
+        senderBalanceBefore: balanceData.senderBalanceBefore,
+        senderBalanceAfter: balanceData.senderBalanceAfter,
+        receiverBalanceBefore: balanceData.receiverBalanceBefore,
+        receiverBalanceAfter: balanceData.receiverBalanceAfter,
+        timestamp: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Không thể ghi log kiểm tra tính toàn vẹn số dư:', error);
+    return null;
+  }
+};
+
+/**
+ * Ghi log hành động tài chính của admin
+ * @param {ObjectId} adminId - ID của admin
+ * @param {String} action - Loại hành động
+ * @param {Object} details - Chi tiết hành động
+ * @param {String} ipAddress - Địa chỉ IP
+ * @param {String} deviceInfo - Thông tin thiết bị
+ * @returns {Promise<AuditLog>}
+ */
+exports.logAdminFinancialAction = async (adminId, action, details, ipAddress, deviceInfo) => {
+  try {
+    return await this.logAction({
+      userId: adminId,
+      action,
+      ipAddress,
+      deviceInfo,
+      targetId: details.transactionId || details.receiverId,
+      targetType: 'Transaction',
+      details: {
+        ...details,
+        timestamp: new Date()
+      }
+    });
+  } catch (error) {
+    console.error('Không thể ghi log hành động tài chính của admin:', error);
+    return null;
+  }
+};
+
+/**
+ * Tìm kiếm log kiểm toán
+ * @param {Object} filter - Điều kiện lọc
+ * @param {Object} options - Tùy chọn phân trang
+ * @returns {Promise<Object>} - Kết quả tìm kiếm
+ */
+exports.searchAuditLogs = async (filter = {}, options = { page: 1, limit: 10 }) => {
+  try {
+    const page = parseInt(options.page, 10) || 1;
+    const limit = parseInt(options.limit, 10) || 10;
+    const skip = (page - 1) * limit;
+
     const query = {};
     
-    // Áp dụng các bộ lọc
-    if (filters.resourceType) query.resourceType = filters.resourceType;
-    if (filters.action) query.action = filters.action;
-    if (filters.userId) query.userId = filters.userId;
-    
-    // Lọc theo thời gian
-    if (filters.startDate || filters.endDate) {
+    if (filter.userId) query.userId = mongoose.Types.ObjectId(filter.userId);
+    if (filter.action) query.action = filter.action;
+    if (filter.targetType) query.targetType = filter.targetType;
+    if (filter.startDate || filter.endDate) {
       query.createdAt = {};
-      
-      if (filters.startDate) {
-        query.createdAt.$gte = new Date(filters.startDate);
-      }
-      
-      if (filters.endDate) {
-        query.createdAt.$lte = new Date(filters.endDate);
-      }
+      if (filter.startDate) query.createdAt.$gte = new Date(filter.startDate);
+      if (filter.endDate) query.createdAt.$lte = new Date(filter.endDate);
     }
-    
-    // Tính tổng số bản ghi
-    const total = await AuditLog.countDocuments(query);
-    
-    // Lấy dữ liệu theo phân trang
-    const page = options.page || 1;
-    const limit = options.limit || 50;
-    const skip = (page - 1) * limit;
-    
+    if (filter.ipAddress) query.ipAddress = { $regex: filter.ipAddress, $options: 'i' };
+
     const logs = await AuditLog.find(query)
+      .populate('userId', 'telegramId username')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit)
-      .populate('userId', 'username telegramId role');
-    
+      .limit(limit);
+
+    const total = await AuditLog.countDocuments(query);
+
     return {
       logs,
       pagination: {
@@ -195,7 +294,7 @@ exports.getAllAuditLogs = async (filters = {}, options = {}) => {
       }
     };
   } catch (error) {
-    logger.error(`Error retrieving all audit logs: ${error.message}`);
+    console.error('Không thể tìm kiếm log kiểm toán:', error);
     throw error;
   }
 }; 

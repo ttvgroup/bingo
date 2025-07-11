@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Bet = require('../models/Bet');
 const Result = require('../models/Result');
@@ -14,6 +15,10 @@ const crypto = require('crypto');
 const { validationResult } = require('express-validator');
 const resultService = require('../services/resultService');
 const jwt = require('jsonwebtoken'); // Cần cài đặt nếu chưa có
+const asyncHandler = require('../utils/asyncHandler');
+const redisClient = require('../config/redis');
+const userService = require('../services/userService');
+const helper = require('../utils/helper');
 
 /**
  * Controller quản lý các chức năng của admin
@@ -972,3 +977,656 @@ exports.verifyResultWithExternalSources = async (req, res, next) => {
     next(error);
   }
 };
+
+// Thêm chức năng tạo điểm (point creation) vào controller
+
+/**
+ * Tạo QR code cho xác thực từ thiết bị thứ hai
+ * @route GET /api/admin/create-points/qr
+ * @access Admin
+ */
+exports.generatePointCreationQR = asyncHandler(async (req, res, next) => {
+  const admin = req.adminUser;
+  
+  // Tạo token QR
+  const token = crypto.randomBytes(32).toString('hex');
+  
+  // Lưu token vào admin
+  admin.loginQrCode = {
+    token,
+    expiresAt: new Date(Date.now() + 5 * 60 * 1000) // Có hiệu lực trong 5 phút
+  };
+  
+  await admin.save();
+  
+  // Tạo QR code
+  const qrData = JSON.stringify({
+    token,
+    adminId: admin._id.toString(),
+    action: 'point_creation_auth',
+    timestamp: Date.now()
+  });
+  
+  // Tạo mã QR
+  const qrImage = await qrcode.toDataURL(qrData);
+  
+  res.status(200).json({
+    success: true,
+    qrCode: qrImage,
+    expiresAt: admin.loginQrCode.expiresAt
+  });
+});
+
+/**
+ * Tạo điểm trong hệ thống
+ * @route POST /api/admin/create-points
+ * @access Admin
+ */
+exports.createPoints = asyncHandler(async (req, res, next) => {
+  const admin = req.adminUser;
+  const { amount, targetUserIds, reason } = req.body;
+  
+  if (!amount || amount <= 0) {
+    throw new ApiError('Số điểm cần tạo không hợp lệ', 400);
+  }
+  
+  if (!Array.isArray(targetUserIds) || targetUserIds.length === 0) {
+    throw new ApiError('Danh sách người dùng nhận điểm không hợp lệ', 400);
+  }
+  
+  // Kiểm tra giới hạn tạo điểm hàng ngày (100 triệu điểm mỗi ngày)
+  const DAILY_POINT_LIMIT = 100000000; // 100 triệu điểm
+  
+  // Tìm tổng số điểm đã tạo trong ngày
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1);
+  
+  const dailyCreated = await Transaction.aggregate([
+    { 
+      $match: { 
+        userId: admin._id,
+        type: 'point_creation',
+        status: 'completed',
+        createdAt: { $gte: startOfDay, $lt: endOfDay }
+      } 
+    },
+    { 
+      $group: { 
+        _id: null, 
+        total: { $sum: '$amount' } 
+      } 
+    }
+  ]);
+  
+  const totalCreatedToday = dailyCreated.length > 0 ? dailyCreated[0].total : 0;
+  
+  // Kiểm tra số điểm định tạo trong request này
+  const totalAmountToCreate = amount * targetUserIds.length;
+  if (totalCreatedToday + totalAmountToCreate > DAILY_POINT_LIMIT) {
+    throw new ApiError(
+      `Vượt quá giới hạn tạo điểm hàng ngày (Đã tạo: ${totalCreatedToday}, Giới hạn: ${DAILY_POINT_LIMIT})`,
+      400
+    );
+  }
+  
+  // Bắt đầu session MongoDB
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    // Tìm người dùng nhận điểm
+    const targetUsers = await User.find({ _id: { $in: targetUserIds } }).session(session);
+    
+    if (targetUsers.length !== targetUserIds.length) {
+      throw new ApiError('Một số người dùng không tồn tại', 404);
+    }
+    
+    // Tạo giao dịch và cập nhật số dư cho từng người dùng
+    const transactions = [];
+    
+    for (const user of targetUsers) {
+      // Tạo giao dịch
+      const transaction = new Transaction({
+        userId: admin._id,
+        receiverId: user._id,
+        type: 'point_creation',
+        amount,
+        status: 'completed',
+        description: reason || 'Admin tạo điểm',
+        processedBy: admin._id,
+        processedAt: now,
+        metaData: {
+          adminName: admin.username,
+          adminTelegramId: admin.telegramId,
+          receiverName: user.username,
+          receiverTelegramId: user.telegramId,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+          createdAt: now
+        }
+      });
+      
+      await transaction.save({ session });
+      transactions.push(transaction);
+      
+      // Cập nhật số dư người dùng
+      await User.updateOne(
+        { _id: user._id },
+        { $inc: { balance: amount } }
+      ).session(session);
+      
+      // Cập nhật cache Redis
+      try {
+        const userData = await User.findById(user._id).session(session);
+        await redisClient.setEx(`user:${user.telegramId}`, 3600, JSON.stringify(userData));
+      } catch (redisErr) {
+        // Lỗi Redis không ảnh hưởng đến giao dịch
+        console.error('Redis cache error:', redisErr);
+      }
+    }
+    
+    // Ghi nhật ký audit
+    await auditService.createAuditLog({
+      userId: admin._id,
+      action: 'POINT_CREATION',
+      targetType: 'User',
+      details: {
+        amount,
+        targetUserIds,
+        reason,
+        totalAmount: totalAmountToCreate
+      },
+      ipAddress: req.ip,
+      deviceInfo: req.headers['user-agent']
+    }, session);
+    
+    // Commit transaction
+    await session.commitTransaction();
+    
+    res.status(200).json({
+      success: true,
+      message: `Đã tạo ${amount} điểm cho ${targetUsers.length} người dùng`,
+      transactions: transactions.map(t => ({
+        id: t._id,
+        receiverName: targetUsers.find(u => u._id.toString() === t.receiverId.toString())?.username,
+        receiverTelegramId: targetUsers.find(u => u._id.toString() === t.receiverId.toString())?.telegramId,
+        amount: t.amount
+      })),
+      dailyCreated: totalCreatedToday + totalAmountToCreate,
+      dailyLimit: DAILY_POINT_LIMIT,
+      remaining: DAILY_POINT_LIMIT - (totalCreatedToday + totalAmountToCreate)
+    });
+  } catch (error) {
+    // Rollback transaction
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    // End session
+    session.endSession();
+  }
+});
+
+/**
+ * Tạo điểm cho tài khoản admin (giới hạn 100 triệu mỗi ngày)
+ * @route POST /api/admin/points/create
+ * @access Private (Admin + 2FA + Second Device QR)
+ */
+exports.createPoints = asyncHandler(async (req, res) => {
+  const admin = req.adminUser;
+  const { amount } = req.body;
+  
+  // Lấy thông tin client để lưu vào log
+  const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  const userAgent = req.headers['user-agent'];
+
+  // Validate amount
+  if (!amount || !Number.isInteger(amount) || amount <= 0) {
+    throw new ApiError('Số điểm phải là số nguyên dương', 400);
+  }
+
+  if (amount > 100000000) {
+    throw new ApiError('Số điểm tạo không được vượt quá 100 triệu', 400);
+  }
+
+  // Khởi tạo session với cấu hình bảo mật cao
+  const session = await mongoose.startSession();
+  session.startTransaction({
+    readConcern: { level: 'snapshot' },
+    writeConcern: { w: 'majority', j: true }
+  });
+
+  try {
+    // Kiểm tra giới hạn hàng ngày
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Tính tổng điểm đã tạo trong ngày
+    const dailyPointsCreated = await Transaction.aggregate([
+      {
+        $match: {
+          userId: admin._id,
+          type: 'point_creation',
+          status: 'completed',
+          createdAt: { $gte: today, $lt: tomorrow }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$amount' }
+        }
+      }
+    ]).session(session);
+
+    const totalCreatedToday = dailyPointsCreated.length > 0 ? dailyPointsCreated[0].total : 0;
+    
+    if (totalCreatedToday + amount > 100000000) {
+      throw new ApiError(`Đã vượt quá giới hạn 100 triệu điểm mỗi ngày. Đã tạo ${totalCreatedToday.toLocaleString('vi-VN')} điểm hôm nay.`, 400);
+    }
+
+    // Cập nhật số dư admin
+    await User.updateOne(
+      { _id: admin._id },
+      { $inc: { balance: amount } }
+    ).session(session);
+
+    // Tạo giao dịch
+    const transactionData = {
+      userId: admin._id,
+      type: 'point_creation',
+      amount: amount,
+      status: 'completed',
+      description: `Admin tạo ${amount.toLocaleString('vi-VN')} điểm`,
+      processedBy: admin._id,
+      processedAt: new Date(),
+      metaData: {
+        adminId: admin._id,
+        adminTelegramId: admin.telegramId,
+        clientIp,
+        userAgent,
+        dailyLimit: 100000000,
+        dailyUsed: totalCreatedToday + amount
+      }
+    };
+
+    // Tạo hash cho giao dịch
+    const dataToHash = `${admin._id.toString()}-${amount}-${Date.now()}`;
+    transactionData.transactionHash = crypto.createHash('sha256').update(dataToHash).digest('hex');
+
+    const transaction = await Transaction.create([transactionData], { session });
+
+    // Ghi log kiểm toán
+    await auditService.logFinancialTransaction(
+      transaction[0],
+      admin,
+      clientIp,
+      userAgent
+    );
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // Cập nhật cache Redis
+    try {
+      const adminData = await User.findById(admin._id);
+      await redisClient.setEx(`user:${admin.telegramId}`, 3600, JSON.stringify(adminData));
+    } catch (redisErr) {
+      console.error('Không thể cập nhật cache Redis:', redisErr);
+    }
+
+    // Thông báo qua Telegram
+    try {
+      await telegramService.sendPointCreationNotification(
+        admin.telegramId,
+        amount,
+        totalCreatedToday + amount,
+        100000000
+      );
+    } catch (error) {
+      console.error('Không thể gửi thông báo Telegram:', error);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Đã tạo thành công ${amount.toLocaleString('vi-VN')} điểm`,
+      transaction: transaction[0],
+      dailyCreated: totalCreatedToday + amount,
+      dailyLimit: 100000000,
+      remainingToday: 100000000 - (totalCreatedToday + amount)
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
+});
+
+/**
+ * Lấy thông tin tài khoản Pool
+ * @route GET /api/admin/pool
+ * @access Admin
+ */
+exports.getPoolAccount = asyncHandler(async (req, res) => {
+  const poolAccount = await userService.getOrCreatePoolAccount();
+  
+  // Lấy thêm thông tin thống kê
+  const stats = {
+    totalBets: await Transaction.countDocuments({ 
+      userId: poolAccount._id, 
+      type: 'bet_receive' 
+    }),
+    totalPayouts: await Transaction.countDocuments({ 
+      userId: poolAccount._id, 
+      type: 'win_payout' 
+    }),
+    totalBetAmount: await Transaction.aggregate([
+      { $match: { userId: poolAccount._id, type: 'bet_receive' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]).then(result => (result.length > 0 ? result[0].total : 0)),
+    totalPayoutAmount: await Transaction.aggregate([
+      { $match: { userId: poolAccount._id, type: 'win_payout' } },
+      { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
+    ]).then(result => (result.length > 0 ? result[0].total : 0))
+  };
+  
+  res.status(200).json({
+    success: true,
+    data: {
+      pool: {
+        telegramId: poolAccount.telegramId,
+        username: poolAccount.username,
+        balance: poolAccount.balance,
+        role: poolAccount.role,
+        createdAt: poolAccount.createdAt
+      },
+      stats
+    }
+  });
+});
+
+/**
+ * Lấy lịch sử giao dịch của tài khoản Pool
+ * @route GET /api/admin/pool/transactions
+ * @access Admin
+ */
+exports.getPoolTransactions = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 20, type, startDate, endDate } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+  
+  const poolAccount = await userService.getOrCreatePoolAccount();
+  
+  // Xây dựng query
+  const query = { userId: poolAccount._id };
+  
+  // Lọc theo loại giao dịch
+  if (type) {
+    query.type = type;
+  }
+  
+  // Lọc theo khoảng thời gian
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      query.createdAt.$lte = new Date(endDate);
+    }
+  }
+  
+  // Thực hiện truy vấn
+  const transactions = await Transaction.find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit))
+    .populate('receiverId', 'telegramId username')
+    .populate('reference');
+  
+  const total = await Transaction.countDocuments(query);
+  
+  res.status(200).json({
+    success: true,
+    data: {
+      transactions,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    }
+  });
+});
+
+/**
+ * Nạp tiền vào tài khoản Pool
+ * @route POST /api/admin/pool/deposit
+ * @access Admin
+ */
+exports.depositToPool = asyncHandler(async (req, res) => {
+  const { amount } = req.body;
+  const adminId = req.adminUser._id;
+  
+  if (!amount || amount <= 0) {
+    throw new ApiError('Số tiền không hợp lệ', 400);
+  }
+  
+  const session = await mongoose.startSession();
+  session.startTransaction({
+    readConcern: { level: 'snapshot' },
+    writeConcern: { w: 'majority' }
+  });
+  
+  try {
+    // Lấy tài khoản Pool
+    const poolAccount = await userService.getOrCreatePoolAccount();
+    
+    // Lưu số dư trước khi nạp
+    const balanceBefore = poolAccount.balance;
+    
+    // Cập nhật số dư tài khoản Pool
+    const updatedPool = await mongoose.model('User').findOneAndUpdate(
+      { _id: poolAccount._id },
+      { $inc: { balance: amount } },
+      { new: true, session }
+    );
+    
+    if (!updatedPool) {
+      throw new ApiError('Không thể cập nhật số dư tài khoản Pool', 500);
+    }
+    
+    // Tạo transaction record
+    const transactionHash = crypto
+      .createHash('sha256')
+      .update(`${adminId}-${poolAccount._id}-${amount}-${Date.now()}`)
+      .digest('hex');
+    
+    const transaction = new Transaction({
+      userId: poolAccount._id,
+      type: 'point_creation',
+      amount: amount,
+      status: 'completed',
+      description: `Admin nạp điểm vào tài khoản Pool`,
+      processedBy: adminId,
+      processedAt: new Date(),
+      metaData: {
+        adminId,
+        poolBalanceBefore: balanceBefore,
+        poolBalanceAfter: updatedPool.balance,
+        adminCreated: true
+      },
+      transactionHash
+    });
+    
+    await transaction.save({ session });
+    
+    // Xóa cache
+    await mongoose.connection.db.collection('redis').deleteOne({ key: 'SYSTEM_POOL_ACCOUNT' });
+    
+    // Commit transaction
+    await session.commitTransaction();
+    
+    res.status(200).json({
+      success: true,
+      message: `Đã nạp ${helper.formatCurrency(amount)} điểm vào tài khoản Pool`,
+      data: {
+        newBalance: updatedPool.balance,
+        transaction: {
+          id: transaction._id,
+          amount,
+          type: transaction.type,
+          createdAt: transaction.createdAt
+        }
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
+});
+
+/**
+ * Lấy báo cáo tài khoản Pool
+ * @route GET /api/admin/pool/report
+ * @access Admin
+ */
+exports.getPoolReport = asyncHandler(async (req, res) => {
+  const { startDate, endDate } = req.query;
+  
+  // Xác định khoảng thời gian
+  const timeQuery = {};
+  if (startDate) {
+    timeQuery.$gte = new Date(startDate);
+  }
+  if (endDate) {
+    timeQuery.$lte = new Date(endDate);
+  }
+  
+  const poolAccount = await userService.getOrCreatePoolAccount();
+  
+  // Thống kê theo ngày
+  const dailyStats = await Transaction.aggregate([
+    { 
+      $match: { 
+        userId: poolAccount._id,
+        ...(Object.keys(timeQuery).length > 0 ? { createdAt: timeQuery } : {})
+      } 
+    },
+    {
+      $addFields: {
+        dateOnly: {
+          $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: {
+          date: '$dateOnly',
+          type: '$type'
+        },
+        count: { $sum: 1 },
+        amount: { $sum: '$amount' }
+      }
+    },
+    {
+      $group: {
+        _id: '$_id.date',
+        transactions: {
+          $push: {
+            type: '$_id.type',
+            count: '$count',
+            amount: '$amount'
+          }
+        },
+        totalCount: { $sum: '$count' }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+  
+  // Thống kê tổng hợp
+  const summary = await Transaction.aggregate([
+    { 
+      $match: { 
+        userId: poolAccount._id,
+        ...(Object.keys(timeQuery).length > 0 ? { createdAt: timeQuery } : {})
+      } 
+    },
+    {
+      $group: {
+        _id: '$type',
+        count: { $sum: 1 },
+        amount: { $sum: '$amount' }
+      }
+    }
+  ]);
+  
+  // Tính toán lợi nhuận
+  let profit = 0;
+  let totalBetAmount = 0;
+  let totalPayoutAmount = 0;
+  
+  summary.forEach(item => {
+    if (item._id === 'bet_receive') {
+      totalBetAmount = item.amount;
+    } else if (item._id === 'win_payout') {
+      totalPayoutAmount = Math.abs(item.amount);
+    }
+  });
+  
+  profit = totalBetAmount - totalPayoutAmount;
+  
+  res.status(200).json({
+    success: true,
+    data: {
+      poolBalance: poolAccount.balance,
+      dailyStats,
+      summary,
+      profit,
+      profitRate: totalBetAmount > 0 ? (profit / totalBetAmount) * 100 : 0
+    }
+  });
+});
+
+/**
+ * Khởi tạo tài khoản Pool
+ * @route POST /api/admin/pool/initialize
+ * @access Admin
+ */
+exports.initializePoolAccount = asyncHandler(async (req, res) => {
+  const adminId = req.adminUser._id;
+  
+  try {
+    const poolAccount = await userService.initializePoolAccount(adminId);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Đã khởi tạo tài khoản Pool thành công',
+      data: {
+        telegramId: poolAccount.telegramId,
+        username: poolAccount.username,
+        balance: poolAccount.balance,
+        createdAt: poolAccount.createdAt
+      }
+    });
+  } catch (error) {
+    if (error.message === 'Tài khoản Pool đã tồn tại') {
+      res.status(400).json({
+        success: false,
+        message: 'Tài khoản Pool đã tồn tại',
+        error: error.message
+      });
+    } else {
+      throw error;
+    }
+  }
+});

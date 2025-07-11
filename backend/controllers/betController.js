@@ -6,6 +6,8 @@ const { body, validationResult } = require('express-validator');
 const logger = require('../utils/logger');
 const config = require('../config');
 const asyncHandler = require('../utils/asyncHandler');
+const helper = require('../utils/helper');
+const dateHelper = require('../utils/dateHelper');
 
 /**
  * Validator cho đặt cược
@@ -60,10 +62,8 @@ exports.betValidation = [
  * Kiểm tra thời gian đặt cược
  */
 const checkBettingTime = () => {
-  const now = new Date();
-  
-  // Đặt múi giờ Vietnam (GMT+7)
-  const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+  // Sử dụng dateHelper để lấy thời gian Việt Nam (GMT+7)
+  const vietnamTime = dateHelper.getCurrentVietnamTime();
   
   // Lấy giờ từ 0-23
   const hours = vietnamTime.getUTCHours();
@@ -90,7 +90,7 @@ exports.placeBet = [
       return next(new ApiError('Ngoài thời gian đặt cược. Chỉ được đặt cược từ 00:01 đến 15:30 hàng ngày (giờ Việt Nam)', 403));
     }
     
-    const { numbers, betType, amount, provinceCode } = req.body;
+    const { numbers, betType, amount, provinceCode, betDate } = req.body;
     const userId = req.user._id;
     
     // Lưu thông tin thiết bị và IP
@@ -99,12 +99,28 @@ exports.placeBet = [
       deviceInfo: req.headers['user-agent'] || 'Unknown'
     };
     
+    // Xác định ngày đặt cược (mặc định là ngày hiện tại GMT+7)
+    let parsedBetDate = dateHelper.getCurrentVietnamTime();
+    
+    // Nếu có cung cấp betDate trong định dạng DD/MM/YYYY
+    if (betDate) {
+      const date = dateHelper.parseVNDate(betDate);
+      if (date) {
+        parsedBetDate = date;
+      } else {
+        return next(new ApiError('Định dạng ngày cược không hợp lệ. Vui lòng sử dụng định dạng DD/MM/YYYY', 400));
+      }
+    }
+    
     // Sử dụng betService để đặt cược với transaction
-    const bet = await betService.placeBet(userId, numbers, betType, amount, provinceCode, metadata);
+    const bet = await betService.placeBet(userId, numbers, betType, amount, provinceCode, metadata, parsedBetDate);
     
     res.status(201).json({
       success: true,
-      data: bet
+      data: {
+        ...bet,
+        betDate: helper.formatDate(bet.betDate) // Định dạng ngày cược cho phản hồi
+      }
     });
   })
 ];

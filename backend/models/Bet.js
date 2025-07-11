@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 const crypto = require('crypto');
+const helper = require('../utils/helper');
 
 const BetSchema = new Schema({
   userId: {
@@ -39,6 +40,15 @@ const BetSchema = new Schema({
     type: Date,
     default: Date.now
   },
+  // Ngày cược (ngày/tháng/năm) dùng để so khớp với ngày kết quả
+  betDate: {
+    type: Date,
+    required: true
+  },
+  // Ngày kết quả xổ số (được cập nhật khi xác định trúng/trượt)
+  resultDate: {
+    type: Date
+  },
   resultId: {
     type: Schema.Types.ObjectId,
     ref: 'Result'
@@ -47,6 +57,12 @@ const BetSchema = new Schema({
     type: String,
     enum: ['pending', 'won', 'lost'],
     default: 'pending'
+  },
+  // Trạng thái kiểm tra ngày, thể hiện sự khớp giữa ngày cược và ngày kết quả
+  dateMatchStatus: {
+    type: String,
+    enum: ['matched', 'mismatched', 'not_checked'],
+    default: 'not_checked'
   },
   provinceCode: {
     type: String,
@@ -68,6 +84,51 @@ const BetSchema = new Schema({
   transactionTimestamp: {
     type: Date,
     default: Date.now
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['pending', 'pending_approval', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  // Các trường cho hệ thống phần thưởng nâng cao
+  parlayId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Parlay'
+  },
+  isParlayBet: {
+    type: Boolean,
+    default: false
+  },
+  dynamicOddsFactor: {
+    type: Number,
+    default: 1.0
+  },
+  rewardDetails: {
+    baseWinAmount: {
+      type: Number,
+      default: 0
+    },
+    bonuses: [{
+      type: {
+        type: String,
+        enum: ['tier', 'incentive', 'special', 'jackpot']
+      },
+      name: String,
+      percentage: Number,
+      amount: Number
+    }],
+    totalBonusAmount: {
+      type: Number,
+      default: 0
+    }
+  },
+  contributedToJackpot: {
+    type: Boolean,
+    default: false
+  },
+  jackpotContribution: {
+    type: Number,
+    default: 0
   }
 });
 
@@ -78,6 +139,8 @@ BetSchema.index({ provinceCode: 1, status: 1, createdAt: -1 });
 BetSchema.index({ userId: 1, status: 1 });
 BetSchema.index({ numbers: 1, betType: 1, provinceCode: 1 });
 BetSchema.index({ integrityHash: 1 });
+BetSchema.index({ betDate: 1 });
+BetSchema.index({ dateMatchStatus: 1 });
 
 // Pre-save middleware để tạo hash toàn vẹn
 BetSchema.pre('save', function(next) {
@@ -92,6 +155,11 @@ BetSchema.pre('save', function(next) {
       .createHash('sha256')
       .update(dataToHash)
       .digest('hex');
+    
+    // Đặt betDate mặc định là ngày hiện tại theo GMT+7
+    if (!this.betDate) {
+      this.betDate = helper.getCurrentVietnamTime();
+    }
   }
   next();
 });
@@ -106,6 +174,40 @@ BetSchema.methods.verifyIntegrity = function() {
     .digest('hex');
   
   return calculatedHash === this.integrityHash;
+};
+
+// Phương thức kiểm tra sự phù hợp giữa ngày đặt cược và ngày kết quả
+BetSchema.methods.checkDateMatch = function(resultDate) {
+  if (!resultDate) {
+    this.dateMatchStatus = 'not_checked';
+    return false;
+  }
+  
+  this.resultDate = resultDate;
+  
+  // Kiểm tra sự phù hợp giữa ngày đặt cược và ngày kết quả
+  const isMatched = helper.isSameDay(this.betDate, resultDate);
+  this.dateMatchStatus = isMatched ? 'matched' : 'mismatched';
+  
+  return isMatched;
+};
+
+// Phương thức trả về thông tin cược với định dạng ngày/tháng/năm
+BetSchema.methods.getFormattedInfo = function() {
+  return {
+    _id: this._id,
+    userId: this.userId,
+    numbers: this.numbers,
+    betType: this.betType,
+    amount: this.amount,
+    betDate: helper.formatDate(this.betDate),
+    resultDate: this.resultDate ? helper.formatDate(this.resultDate) : null,
+    status: this.status,
+    dateMatchStatus: this.dateMatchStatus,
+    provinceCode: this.provinceCode,
+    winAmount: this.winAmount,
+    createdAt: helper.formatDateTime(this.createdAt)
+  };
 };
 
 module.exports = mongoose.model('Bet', BetSchema);

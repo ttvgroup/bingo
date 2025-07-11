@@ -1,15 +1,24 @@
+// Import modules
 const express = require('express');
 const mongoose = require('mongoose');
-const helmet = require('helmet');
 const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
 const { initRedisClient, getRedisClient } = require('./config/redis');
 const config = require('./config');
-const apiRoutes = require('./routes/api');
 const logger = require('./utils/logger');
+const apiRoutes = require('./routes/api');
+const userRoutes = require('./routes/userRoutes');
+const errorMiddleware = require('./middleware/error');
+const telegramService = require('./services/telegramService');
+const configService = require('./services/configService');
 const { sanitizeJson } = require('./middleware/validation');
 
 // Khởi tạo ứng dụng Express
 const app = express();
+
+// Khởi động Telegram Bot
+telegramService.startBot();
 
 // Middleware bảo mật và CORS
 app.use(helmet());
@@ -34,19 +43,7 @@ app.use((req, res, next) => {
 app.use('/api', apiRoutes);
 
 // Error handler
-app.use((err, req, res, next) => {
-  logger.error(`Error: ${err.message}`, { stack: err.stack });
-  
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
-  const errors = err.errors || [];
-  
-  res.status(statusCode).json({
-    success: false,
-    message,
-    errors
-  });
-});
+app.use(errorMiddleware);
 
 // Hàm khởi tạo kết nối database
 const connectDB = async () => {
@@ -80,6 +77,16 @@ const startServer = async () => {
     const redisClient = getRedisClient();
     if (!redisClient || !redisClient.isOpen) {
       logger.warn('Redis connection failed, continuing without cache');
+    }
+    
+    // Khởi tạo cấu hình hệ thống
+    try {
+      await configService.initDefaultConfigs();
+      await config.updateFromDatabase(configService);
+      logger.info('System configuration initialized');
+    } catch (configError) {
+      logger.error(`Failed to initialize system configuration: ${configError.message}`, { stack: configError.stack });
+      logger.warn('Continuing with default configuration');
     }
     
     // Khởi động server

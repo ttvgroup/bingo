@@ -14,14 +14,41 @@ const AuditLogSchema = new Schema({
     type: String,
     required: true,
     enum: [
-      'LOGIN',
-      'LOGOUT', 
-      'CREATE_RESULT',
-      'UPDATE_RESULT',
-      'DELETE_RESULT',
-      'PROCESS_TRANSACTION',
-      'UPDATE_USER',
-      'SYSTEM_ALERT'
+      // Đăng nhập/Xác thực
+      'login_success',
+      'login_failed',
+      'logout',
+      'device_registered',
+      'device_removed',
+      'two_factor_enabled',
+      'two_factor_disabled',
+      
+      // Giao dịch tài chính
+      'transfer_funds',
+      'deposit_request',
+      'withdraw_request',
+      'place_bet',
+      'win_payout',
+      'create_points',
+      'transaction',
+      
+      // Quản lý kết quả
+      'result_create',
+      'result_update',
+      'result_delete',
+      'result_verify',
+      
+      // Quản lý người dùng
+      'user_create',
+      'user_update',
+      'user_delete',
+      'user_role_change',
+      
+      // Hệ thống
+      'config_change',
+      'system_alert',
+      'system_error',
+      'system_maintenance'
     ]
   },
   ipAddress: {
@@ -35,7 +62,7 @@ const AuditLogSchema = new Schema({
   },
   targetType: {
     type: String,
-    enum: ['User', 'Result', 'Bet', 'Transaction']
+    enum: ['User', 'Result', 'Bet', 'Transaction', 'Config', 'System']
   },
   details: {
     type: Schema.Types.Mixed
@@ -50,5 +77,7 @@ const AuditLogSchema = new Schema({
 AuditLogSchema.index({ userId: 1, createdAt: -1 });
 AuditLogSchema.index({ action: 1, createdAt: -1 });
 AuditLogSchema.index({ targetId: 1, targetType: 1 });
+AuditLogSchema.index({ createdAt: -1 }); // Index cho truy vấn theo thời gian
+AuditLogSchema.index({ ipAddress: 1 }); // Index cho truy vấn theo IP
 
 module.exports = mongoose.model('AuditLog', AuditLogSchema); 

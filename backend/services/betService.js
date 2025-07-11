@@ -7,24 +7,56 @@ const redisClient = require('../config/redis');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { getCacheKey } = require('./cacheService');
+const configService = require('./configService');
+const dateHelper = require('../utils/dateHelper');
+const userService = require('./userService');
+const crypto = require('crypto');
 
 /**
  * Kiểm tra thời gian đặt cược theo múi giờ GMT+7 (Việt Nam/Thái Lan)
  * @returns {boolean} - Kết quả kiểm tra
  */
-const checkBettingTime = () => {
-  // Sử dụng hàm tiện ích từ config
-  if (!config.isWithinBettingHours()) {
-    const startHour = config.bettingTime.start.hour.toString().padStart(2, '0');
-    const startMinute = config.bettingTime.start.minute.toString().padStart(2, '0');
-    const endHour = config.bettingTime.end.hour.toString().padStart(2, '0');
-    const endMinute = config.bettingTime.end.minute.toString().padStart(2, '0');
+const checkBettingTime = async () => {
+  try {
+    // Kiểm tra trạng thái bật/tắt đặt cược
+    const bettingEnabled = await configService.isBettingEnabled();
+    if (!bettingEnabled) {
+      throw new ApiError('Hệ thống đặt cược hiện đang tạm khóa. Vui lòng thử lại sau.', 403);
+    }
     
-    throw new ApiError(`Giờ đặt cược là từ ${startHour}:${startMinute} đến ${endHour}:${endMinute} (GMT+7)`, 400);
+    // Kiểm tra thời gian đặt cược
+    const isWithinHours = await configService.isWithinBettingHours();
+    if (!isWithinHours) {
+      const bettingHours = await configService.getBettingHours();
+      const startHour = bettingHours.start.hour.toString().padStart(2, '0');
+      const startMinute = bettingHours.start.minute.toString().padStart(2, '0');
+      const endHour = bettingHours.end.hour.toString().padStart(2, '0');
+      const endMinute = bettingHours.end.minute.toString().padStart(2, '0');
+      
+      throw new ApiError(`Giờ đặt cược là từ ${startHour}:${startMinute} đến ${endHour}:${endMinute} (GMT+7)`, 400);
+    }
+    
+    return true;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    logger.error('Lỗi khi kiểm tra thời gian đặt cược:', error);
+    throw new ApiError('Không thể kiểm tra thời gian đặt cược. Vui lòng thử lại sau.', 500);
   }
-  
-  return true;
 };
+
+/**
+ * Tạo hash cho giao dịch
+ * @param {String} senderId - ID người gửi
+ * @param {String} receiverId - ID người nhận
+ * @param {Number} amount - Số tiền
+ * @returns {String} Hash giao dịch
+ */
+function createTransactionHash(senderId, receiverId, amount) {
+  const data = `${senderId}-${receiverId}-${amount}-${Date.now()}`;
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
 
 /**
  * Đặt cược
@@ -34,12 +66,19 @@ const checkBettingTime = () => {
  * @param {Number} amount - Số tiền cược
  * @param {String} provinceCode - Mã tỉnh
  * @param {Object} metadata - Thông tin thêm
+ * @param {Date} betDate - Ngày đặt cược (GMT+7)
  * @returns {Object} - Thông tin cược
  */
-exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metadata = {}) => {
+exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metadata = {}, betDate = null) => {
+  // Kiểm tra thời gian đặt cược
+  await checkBettingTime();
+
   // Bắt đầu session MongoDB
   const session = await mongoose.startSession();
-  session.startTransaction();
+  session.startTransaction({
+    readConcern: { level: 'snapshot' },
+    writeConcern: { w: 'majority' }
+  });
 
   try {
     // Kiểm tra thông tin người dùng
@@ -52,6 +91,14 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
     if (user.balance < amount) {
       throw new ApiError('Insufficient balance', 400);
     }
+    
+    // Lấy tài khoản Pool
+    const poolAccount = await userService.getPoolAccount();
+    
+    // Nếu không cung cấp ngày cược, sử dụng ngày hiện tại theo GMT+7
+    if (!betDate) {
+      betDate = dateHelper.getCurrentVietnamTime();
+    }
 
     // Tạo cược mới
     const newBet = new Bet({
@@ -62,45 +109,109 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
       provinceCode,
       ipAddress: metadata.ipAddress,
       deviceInfo: metadata.deviceInfo,
+      betDate: betDate, // Sử dụng ngày đặt cược cung cấp hoặc mặc định
       transactionTimestamp: new Date()
     });
 
+    // Lưu tổng điểm trước khi thực hiện giao dịch
+    const totalBalanceBefore = user.balance + poolAccount.balance;
+    
     // Lưu cược trong transaction
     await newBet.save({ session });
 
     // Cập nhật số dư người dùng sử dụng atomic operation
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { $inc: { balance: -amount } }, // Sử dụng $inc để tránh race condition
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: userId, balance: { $gte: amount } },
+      { $inc: { balance: -amount } },
       { new: true, session }
     );
 
     if (!updatedUser) {
-      throw new ApiError('Failed to update user balance', 500);
+      throw new ApiError('Failed to update user balance or insufficient balance', 400);
+    }
+    
+    // Cập nhật số dư tài khoản Pool
+    const updatedPool = await User.findOneAndUpdate(
+      { _id: poolAccount._id },
+      { $inc: { balance: amount } },
+      { new: true, session }
+    );
+    
+    if (!updatedPool) {
+      throw new ApiError('Failed to update pool account balance', 500);
+    }
+    
+    // Kiểm tra tổng điểm sau khi thực hiện giao dịch
+    const totalBalanceAfter = updatedUser.balance + updatedPool.balance;
+    
+    // Đảm bảo tổng điểm trước và sau khi chuyển là không đổi
+    if (totalBalanceBefore !== totalBalanceAfter) {
+      throw new ApiError(`Lỗi toàn vẹn dữ liệu: Tổng điểm trước (${totalBalanceBefore}) và sau (${totalBalanceAfter}) không khớp`, 500);
     }
 
-    // Tạo transaction record
-    const transaction = new Transaction({
+    // Tạo transaction record cho người dùng
+    const userTransaction = new Transaction({
       userId,
+      receiverId: poolAccount._id,
       type: 'bet',
       amount: -amount,
       status: 'completed',
       reference: newBet._id,
       referenceModel: 'Bet',
-      description: `Đặt cược ${betType} cho số ${numbers}`,
-      createdAt: new Date()
+      description: `Đặt cược ${betType} cho số ${numbers} ngày ${dateHelper.formatDateVN(betDate)}`,
+      createdAt: new Date(),
+      metaData: {
+        betId: newBet._id,
+        userBalanceBefore: user.balance,
+        userBalanceAfter: updatedUser.balance,
+        poolBalanceBefore: poolAccount.balance,
+        poolBalanceAfter: updatedPool.balance,
+        totalBalanceBefore,
+        totalBalanceAfter,
+        balanceIntegrityVerified: true,
+        ipAddress: metadata.ipAddress,
+        deviceInfo: metadata.deviceInfo
+      },
+      transactionHash: createTransactionHash(userId, poolAccount._id, amount)
     });
 
-    await transaction.save({ session });
+    await userTransaction.save({ session });
+    
+    // Tạo transaction record cho tài khoản Pool
+    const poolTransaction = new Transaction({
+      userId: poolAccount._id,
+      receiverId: userId,
+      type: 'bet_receive',
+      amount: amount,
+      status: 'completed',
+      reference: newBet._id,
+      referenceModel: 'Bet',
+      description: `Nhận tiền cược ${betType} từ ${user.username || userId} cho số ${numbers}`,
+      createdAt: new Date(),
+      metaData: {
+        betId: newBet._id,
+        userBalanceBefore: user.balance,
+        userBalanceAfter: updatedUser.balance,
+        poolBalanceBefore: poolAccount.balance,
+        poolBalanceAfter: updatedPool.balance,
+        totalBalanceBefore,
+        totalBalanceAfter,
+        balanceIntegrityVerified: true
+      },
+      transactionHash: createTransactionHash(poolAccount._id, userId, amount)
+    });
 
-    // Xóa cache của người dùng
+    await poolTransaction.save({ session });
+
+    // Xóa cache của người dùng và tài khoản Pool
     await redisClient.del(getCacheKey('USER_PROFILE', userId));
     await redisClient.del(getCacheKey('USER_BETS', userId));
+    await redisClient.del(getCacheKey('SYSTEM_POOL_ACCOUNT'));
 
     // Commit transaction
     await session.commitTransaction();
     
-    logger.info(`User ${userId} placed bet: ${betType} ${numbers} amount: ${amount}`);
+    logger.info(`User ${userId} placed bet: ${betType} ${numbers} amount: ${amount} for date: ${dateHelper.formatDateVN(betDate)}`);
 
     return {
       id: newBet._id,
@@ -108,6 +219,7 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
       betType,
       amount,
       provinceCode,
+      betDate: newBet.betDate,
       status: newBet.status,
       createdAt: newBet.createdAt
     };
@@ -130,15 +242,15 @@ exports.placeBet = async (userId, numbers, betType, amount, provinceCode, metada
  */
 async function validateBetLimit(userId, amount) {
   // Lấy thời gian đầu ngày và cuối ngày theo GMT+7
-  const vietnamTime = config.getVietnamTime();
+  const vietnamTime = dateHelper.getCurrentVietnamTime();
   
   // Đặt về 00:00:00
   const startOfDay = new Date(vietnamTime);
-  startOfDay.setHours(0, 0, 0, 0);
+  startOfDay.setUTCHours(0, 0, 0, 0);
   
   // Đặt về 23:59:59
   const endOfDay = new Date(vietnamTime);
-  endOfDay.setHours(23, 59, 59, 999);
+  endOfDay.setUTCHours(23, 59, 59, 999);
   
   // Tính tổng số tiền đã cược trong ngày
   const todayBets = await Bet.find({
@@ -227,37 +339,50 @@ exports.getUserBets = async (userId, options = {}) => {
     }
 
     // Kiểm tra cache
-    const cacheKey = getCacheKey('USER_BETS', `${userId}:${JSON.stringify(options)}`);
+    const cacheKey = getCacheKey('USER_BETS', userId, JSON.stringify(options));
     const cachedData = await redisClient.get(cacheKey);
     
     if (cachedData) {
       return JSON.parse(cachedData);
     }
     
-    // Lấy dữ liệu từ database
+    // Thực hiện truy vấn với phân trang
     const [bets, total] = await Promise.all([
       Bet.find(query)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit)
-        .select('numbers betType amount status provinceCode createdAt winAmount'),
-        
+        .limit(limit),
       Bet.countDocuments(query)
     ]);
     
+    // Định dạng kết quả với ngày/tháng/năm GMT+7
+    const formattedBets = bets.map(bet => ({
+      id: bet._id,
+      numbers: bet.numbers,
+      betType: bet.betType,
+      amount: bet.amount,
+      status: bet.status,
+      provinceCode: bet.provinceCode,
+      betDate: dateHelper.formatDateVN(bet.betDate || bet.createdAt),
+      resultDate: bet.resultDate ? dateHelper.formatDateVN(bet.resultDate) : null,
+      dateMatchStatus: bet.dateMatchStatus || 'not_checked',
+      winAmount: bet.winAmount,
+      createdAt: dateHelper.formatDateTimeVN(bet.createdAt)
+    }));
+    
     const result = {
-      bets,
+      bets: formattedBets,
       count: bets.length,
       total,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         pages: Math.ceil(total / limit)
       }
     };
     
-    // Cache kết quả
-    await redisClient.setEx(cacheKey, 300, JSON.stringify(result)); // Cache 5 phút
+    // Lưu cache
+    await redisClient.setEx(cacheKey, config.cacheExpiry, JSON.stringify(result));
     
     return result;
   } catch (error) {

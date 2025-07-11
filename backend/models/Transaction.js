@@ -7,9 +7,13 @@ const TransactionSchema = new Schema({
     ref: 'User',
     required: true
   },
+  receiverId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User'
+  },
   type: {
     type: String,
-    enum: ['deposit', 'withdraw', 'win', 'bet', 'referral'],
+    enum: ['deposit', 'withdraw', 'win', 'bet', 'referral', 'transfer', 'point_creation'],
     required: true
   },
   amount: {
@@ -44,7 +48,8 @@ const TransactionSchema = new Schema({
     default: Date.now
   },
   metaData: {
-    type: Schema.Types.Mixed
+    type: Schema.Types.Mixed,
+    default: {}
   },
   transactionHash: {
     type: String
@@ -53,24 +58,7 @@ const TransactionSchema = new Schema({
 
 // Tạo index để tối ưu truy vấn
 TransactionSchema.index({ userId: 1, createdAt: -1 });
-TransactionSchema.index({ status: 1, createdAt: -1 });
-TransactionSchema.index({ type: 1, status: 1 });
-TransactionSchema.index({ userId: 1, type: 1, status: 1 });
-TransactionSchema.index({ reference: 1, referenceModel: 1 });
-TransactionSchema.index({ processedBy: 1, processedAt: -1 });
-
-// Pre-save middleware để tạo hash giao dịch
-TransactionSchema.pre('save', function(next) {
-  if (this.isNew || this.isModified('amount') || this.isModified('type') || this.isModified('userId')) {
-    const crypto = require('crypto');
-    const dataToHash = `${this.userId.toString()}-${this.type}-${this.amount}-${Date.now()}`;
-    
-    this.transactionHash = crypto
-      .createHash('sha256')
-      .update(dataToHash)
-      .digest('hex');
-  }
-  next();
-});
+TransactionSchema.index({ receiverId: 1, type: 1 });
+TransactionSchema.index({ 'metaData.idempotencyKey': 1 }, { sparse: true, unique: true });
 
 module.exports = mongoose.model('Transaction', TransactionSchema);

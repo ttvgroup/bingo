@@ -1,101 +1,248 @@
 const User = require('../models/User');
 const ApiError = require('../utils/error');
-const speakeasy = require('speakeasy'); // Cần cài đặt nếu chưa có
+const crypto = require('crypto');
+const asyncHandler = require('../utils/asyncHandler');
+const telegramService = require('../services/telegramService');
+const auditService = require('../services/auditService');
+const redisClient = require('../config/redis');
 
 /**
- * Middleware kiểm tra xác thực hai yếu tố (2FA) cho tài khoản admin
- * Yêu cầu admin đã bật 2FA phải cung cấp token OTP trong header X-2FA-Token
+ * Tạo mã xác thực ngẫu nhiên
+ * @private
  */
-exports.require2FA = async (req, res, next) => {
-  try {
-    // Chỉ kiểm tra cho admin
-    if (!req.user || req.user.role !== 'admin') {
-      return next(new ApiError('Không có quyền truy cập', 403));
+function generateVerificationCode() {
+  // Tạo mã 6 chữ số
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/**
+ * Tạo và lưu mã xác thực vào Redis với thời gian hết hạn
+ * @private
+ */
+async function storeVerificationCode(userId, purpose) {
+  const code = generateVerificationCode();
+  const key = `2fa:${purpose}:${userId}`;
+  const ttl = 5 * 60; // 5 phút
+  
+  // Lưu mã vào Redis với thời gian hết hạn
+  await redisClient.setEx(key, ttl, code);
+  
+  return code;
+}
+
+/**
+ * Xác thực mã từ Redis
+ * @private
+ */
+async function verifyCode(userId, purpose, code) {
+  const key = `2fa:${purpose}:${userId}`;
+  
+  // Lấy mã từ Redis
+  const storedCode = await redisClient.get(key);
+  
+  if (!storedCode || storedCode !== code) {
+    return false;
+  }
+  
+  // Xóa mã sau khi xác thực thành công để tránh sử dụng lại
+  await redisClient.del(key);
+  
+  return true;
+}
+
+/**
+ * Gửi mã xác thực qua Telegram
+ * @route POST /api/auth/2fa/send-code
+ * @access Private
+ */
+exports.sendVerificationCode = asyncHandler(async (req, res) => {
+  const user = req.user || req.adminUser;
+  const { purpose } = req.body;
+  
+  if (!user) {
+    throw new ApiError('Không tìm thấy thông tin người dùng', 401);
+  }
+  
+  if (!purpose) {
+    throw new ApiError('Thiếu thông tin mục đích xác thực', 400);
+  }
+  
+  // Lấy thông tin client để lưu vào log
+  const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  const userAgent = req.headers['user-agent'];
+  
+  // Giới hạn số lần gửi mã
+  const rateKey = `2fa:rate:${user._id}`;
+  const rateCount = await redisClient.get(rateKey);
+  
+  if (rateCount && parseInt(rateCount) >= 5) {
+    throw new ApiError('Đã vượt quá giới hạn gửi mã xác thực. Vui lòng thử lại sau 15 phút', 429);
+  }
+  
+  // Tạo và lưu mã xác thực
+  const code = await storeVerificationCode(user._id, purpose);
+  
+  // Tăng bộ đếm giới hạn
+  await redisClient.incr(rateKey);
+  if (!rateCount) {
+    await redisClient.expire(rateKey, 15 * 60); // 15 phút
+  }
+  
+  // Gửi mã qua Telegram
+  await telegramService.sendTwoFactorCode(user.telegramId, code, purpose);
+  
+  // Ghi log
+  await auditService.logAction({
+    userId: user._id,
+    action: 'two_factor_code_sent',
+    ipAddress: clientIp,
+    deviceInfo: userAgent,
+    targetId: user._id,
+    targetType: 'User',
+    details: {
+      purpose,
+      timestamp: new Date()
     }
+  });
+  
+  res.status(200).json({
+    success: true,
+    message: 'Mã xác thực đã được gửi qua Telegram'
+  });
+});
 
-    // Kiểm tra xem admin có bật 2FA không
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return next(new ApiError('Không tìm thấy người dùng', 404));
-    }
-
-    // Nếu chưa bật 2FA, bỏ qua
-    if (!user.twoFactorEnabled) {
-      return next();
-    }
-
-    // Lấy token 2FA từ header
-    const token = req.headers['x-2fa-token'];
-    if (!token) {
-      return next(new ApiError('Yêu cầu xác thực hai yếu tố (2FA). Vui lòng cung cấp token.', 401));
-    }
-
-    // Kiểm tra backup code
-    if (user.twoFactorBackupCodes && user.twoFactorBackupCodes.includes(token)) {
-      // Nếu là backup code hợp lệ, xóa backup code này và cho phép truy cập
-      user.twoFactorBackupCodes = user.twoFactorBackupCodes.filter(code => code !== token);
-      await user.save();
-      return next();
-    }
-
-    // Xác thực token OTP
-    try {
-      const verified = speakeasy.totp.verify({
-        secret: user.twoFactorSecret,
-        encoding: 'base32',
-        token: token,
-        window: 1 // Cho phép token trước và sau 30 giây
-      });
-
-      if (!verified) {
-        return next(new ApiError('Mã xác thực 2FA không hợp lệ hoặc đã hết hạn', 401));
+/**
+ * Xác thực hai lớp cho các hành động quan trọng
+ * @middleware
+ */
+exports.requireTwoFactor = asyncHandler(async (req, res, next) => {
+  const user = req.user || req.adminUser;
+  const { twoFactorCode, purpose } = req.body;
+  
+  if (!user) {
+    throw new ApiError('Không tìm thấy thông tin người dùng', 401);
+  }
+  
+  if (!twoFactorCode) {
+    throw new ApiError('Vui lòng cung cấp mã xác thực hai lớp', 400);
+  }
+  
+  if (!purpose) {
+    throw new ApiError('Thiếu thông tin mục đích xác thực', 400);
+  }
+  
+  // Xác thực mã
+  const isValid = await verifyCode(user._id, purpose, twoFactorCode);
+  
+  if (!isValid) {
+    // Lấy thông tin client để lưu vào log
+    const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+    
+    // Ghi log thất bại
+    await auditService.logAction({
+      userId: user._id,
+      action: 'two_factor_failed',
+      ipAddress: clientIp,
+      deviceInfo: userAgent,
+      targetId: user._id,
+      targetType: 'User',
+      details: {
+        purpose,
+        timestamp: new Date()
       }
-
-      next();
-    } catch (error) {
-      return next(new ApiError('Lỗi xác thực 2FA: ' + error.message, 500));
-    }
-  } catch (error) {
-    next(error);
+    });
+    
+    throw new ApiError('Mã xác thực không hợp lệ hoặc đã hết hạn', 401);
   }
-};
+  
+  // Lưu thông tin xác thực vào request để sử dụng ở middleware tiếp theo
+  req.twoFactorVerified = true;
+  req.twoFactorPurpose = purpose;
+  
+  next();
+});
 
 /**
- * Middleware kiểm tra hạn chế IP cho admin
+ * Xác thực giao dịch lớn
+ * @middleware
  */
-exports.ipRestriction = async (req, res, next) => {
-  try {
-    // Chỉ kiểm tra cho admin
-    if (!req.user || req.user.role !== 'admin') {
-      return next(new ApiError('Không có quyền truy cập', 403));
+exports.requireTransactionVerification = asyncHandler(async (req, res, next) => {
+  const { amount } = req.body;
+  
+  // Nếu số tiền giao dịch lớn hơn ngưỡng, yêu cầu xác thực hai lớp
+  if (amount && amount >= 1000000) {
+    if (!req.twoFactorVerified || req.twoFactorPurpose !== 'transaction') {
+      throw new ApiError('Giao dịch lớn yêu cầu xác thực hai lớp', 403);
     }
-
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return next(new ApiError('Không tìm thấy người dùng', 404));
-    }
-
-    // Nếu admin không bật tính năng này hoặc không có danh sách IP cho phép, bỏ qua
-    if (!user.securitySettings?.requireIpVerification || !user.allowedIps || user.allowedIps.length === 0) {
-      return next();
-    }
-
-    // Lấy IP của người dùng
-    const ip = req.ip || 
-               req.connection.remoteAddress || 
-               req.socket.remoteAddress || 
-               req.headers['x-forwarded-for'];
-
-    // Kiểm tra IP có trong danh sách cho phép không
-    if (!user.allowedIps.includes(ip)) {
-      // Ghi log về việc truy cập bị từ chối
-      console.error(`Admin access denied from unauthorized IP: ${ip} for user: ${user.username || user.telegramId}`);
-      
-      return next(new ApiError('Địa chỉ IP của bạn không được phép truy cập. Vui lòng liên hệ quản trị viên.', 403));
-    }
-
-    next();
-  } catch (error) {
-    next(error);
   }
-}; 
+  
+  next();
+});
+
+/**
+ * Xác thực QR code từ thiết bị thứ hai
+ * @middleware
+ */
+exports.verifySecondDeviceQR = asyncHandler(async (req, res, next) => {
+  const user = req.user || req.adminUser;
+  const { qrToken } = req.body;
+  
+  if (!user) {
+    throw new ApiError('Không tìm thấy thông tin người dùng', 401);
+  }
+  
+  if (!qrToken) {
+    throw new ApiError('Vui lòng cung cấp mã QR từ thiết bị thứ hai', 400);
+  }
+  
+  // Xác thực QR token
+  const qrKey = `qr:${user._id}:${qrToken}`;
+  const isValid = await redisClient.get(qrKey);
+  
+  if (!isValid) {
+    throw new ApiError('Mã QR không hợp lệ hoặc đã hết hạn', 401);
+  }
+  
+  // Xóa token sau khi xác thực thành công
+  await redisClient.del(qrKey);
+  
+  // Lưu thông tin xác thực vào request
+  req.qrVerified = true;
+  
+  next();
+});
+
+/**
+ * Tạo QR code cho thiết bị thứ hai
+ * @route GET /api/auth/2fa/qr-code
+ * @access Private
+ */
+exports.generateQRCode = asyncHandler(async (req, res) => {
+  const user = req.user || req.adminUser;
+  
+  if (!user) {
+    throw new ApiError('Không tìm thấy thông tin người dùng', 401);
+  }
+  
+  // Tạo token ngẫu nhiên
+  const qrToken = crypto.randomBytes(32).toString('hex');
+  
+  // Lưu token vào Redis với thời gian hết hạn 5 phút
+  const qrKey = `qr:${user._id}:${qrToken}`;
+  await redisClient.setEx(qrKey, 5 * 60, 'valid');
+  
+  // Tạo dữ liệu QR
+  const qrData = {
+    token: qrToken,
+    userId: user._id.toString(),
+    timestamp: Date.now(),
+    type: 'second_device_auth'
+  };
+  
+  res.status(200).json({
+    success: true,
+    qrData: JSON.stringify(qrData),
+    expiresIn: 5 * 60 // 5 phút
+  });
+}); 

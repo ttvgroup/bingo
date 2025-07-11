@@ -4,6 +4,9 @@ const ApiError = require('../utils/error');
 const jwt = require('jsonwebtoken');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../utils/logger');
+const qrcode = require('qrcode');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 /**
  * Lấy danh sách tất cả người dùng (chỉ dành cho admin)
@@ -125,11 +128,12 @@ exports.register = asyncHandler(async (req, res, next) => {
     throw new ApiError('Người dùng đã tồn tại', 400);
   }
   
-  // Tạo người dùng mới
+  // Tạo người dùng mới với telegramId làm _id
   user = new User({
+    _id: telegramId, // Sử dụng telegramId làm _id
     telegramId,
     username,
-    balance: 1000, // Số dư mặc định
+    balance: 0, // Số dư mặc định
     role: 'user'
   });
   
@@ -147,6 +151,7 @@ exports.register = asyncHandler(async (req, res, next) => {
     success: true,
     token,
     user: {
+      _id: user._id,
       telegramId: user.telegramId,
       username: user.username,
       balance: user.balance,
@@ -290,6 +295,7 @@ exports.createUser = asyncHandler(async (req, res, next) => {
   
   // Tạo người dùng mới
   user = new User({
+    _id: telegramId, // Sử dụng telegramId làm _id
     telegramId,
     username,
     balance: balance || 1000,
@@ -302,10 +308,45 @@ exports.createUser = asyncHandler(async (req, res, next) => {
   res.status(201).json({
     success: true,
     user: {
+      _id: user._id,
       telegramId: user.telegramId,
       username: user.username,
       balance: user.balance,
       role: user.role
+    }
+  });
+});
+
+/**
+ * Lấy mã QR nhận điểm của người dùng
+ * @route GET /api/user/receive-qr
+ * @access Private
+ */
+exports.getReceiveQR = asyncHandler(async (req, res) => {
+  const telegramId = req.user.telegramId;
+
+  // Tìm user
+  const user = await User.findOne({ telegramId });
+  if (!user) {
+    throw new ApiError('Không tìm thấy người dùng', 404);
+  }
+
+  // Tạo dữ liệu QR
+  const qrData = JSON.stringify({
+    receiverId: telegramId,
+    username: user.username || telegramId,
+    type: 'payment_receive'
+  });
+
+  // Tạo mã QR
+  const qrImage = await qrcode.toDataURL(qrData);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      qrCode: qrImage,
+      telegramId: telegramId,
+      username: user.username || telegramId
     }
   });
 });
